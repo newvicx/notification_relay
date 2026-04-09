@@ -1,7 +1,8 @@
 package notify
 
-// SMSProvider is the interface for sending SMS deliveries.
-// Implementation (Twilio) is a placeholder for the next development phase.
+// SMSProvider sends SMS messages via an external provider.
+// Send returns the provider-assigned message SID, the initial status string
+// reported by the provider, and any error.
 type SMSProvider interface {
-	Send(to, message string) (sid string, err error)
+	Send(to, message string) (sid, status string, err error)
 }

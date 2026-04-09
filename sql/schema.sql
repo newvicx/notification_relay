@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     notification_id TEXT NOT NULL,
     event_id        TEXT NOT NULL,
     groups          TEXT NOT NULL,
+    channels        TEXT NOT NULL,
     message         TEXT NOT NULL,
     member_count    INTEGER NOT NULL,
     created_at      TEXT NOT NULL,

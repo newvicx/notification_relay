@@ -1,7 +1,8 @@
 package notify
 
-// VoiceProvider is the interface for initiating voice call deliveries.
-// Implementation (Twilio) is a placeholder for the next development phase.
+// VoiceProvider initiates voice call deliveries via an external provider.
+// Call returns the provider-assigned call SID, the initial status string
+// reported by the provider, and any error.
 type VoiceProvider interface {
-	Call(to, message string) (sid string, err error)
+	Call(to, message string) (sid, status string, err error)
 }
