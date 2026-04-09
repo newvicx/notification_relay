@@ -136,7 +136,7 @@ func (q *Queries) GetGroupMember(ctx context.Context, arg GetGroupMemberParams) 
 }
 
 const getNotificationByID = `-- name: GetNotificationByID :one
-SELECT id, notification_id, event_id, "groups", message, member_count, created_at FROM notifications WHERE id = ?
+SELECT id, notification_id, event_id, "groups", channels, message, member_count, created_at FROM notifications WHERE id = ?
 `
 
 func (q *Queries) GetNotificationByID(ctx context.Context, id int64) (Notification, error) {
@@ -147,6 +147,7 @@ func (q *Queries) GetNotificationByID(ctx context.Context, id int64) (Notificati
 		&i.NotificationID,
 		&i.EventID,
 		&i.Groups,
+		&i.Channels,
 		&i.Message,
 		&i.MemberCount,
 		&i.CreatedAt,
@@ -155,7 +156,7 @@ func (q *Queries) GetNotificationByID(ctx context.Context, id int64) (Notificati
 }
 
 const getNotificationByNotificationID = `-- name: GetNotificationByNotificationID :one
-SELECT id, notification_id, event_id, "groups", message, member_count, created_at FROM notifications WHERE notification_id = ?
+SELECT id, notification_id, event_id, "groups", channels, message, member_count, created_at FROM notifications WHERE notification_id = ?
 `
 
 func (q *Queries) GetNotificationByNotificationID(ctx context.Context, notificationID string) (Notification, error) {
@@ -166,6 +167,7 @@ func (q *Queries) GetNotificationByNotificationID(ctx context.Context, notificat
 		&i.NotificationID,
 		&i.EventID,
 		&i.Groups,
+		&i.Channels,
 		&i.Message,
 		&i.MemberCount,
 		&i.CreatedAt,
@@ -384,15 +386,16 @@ func (q *Queries) InsertGroupMember(ctx context.Context, arg InsertGroupMemberPa
 
 const insertNotification = `-- name: InsertNotification :one
 
-INSERT INTO notifications (notification_id, event_id, groups, message, member_count, created_at)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id, notification_id, event_id, "groups", message, member_count, created_at
+INSERT INTO notifications (notification_id, event_id, groups, channels, message, member_count, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+RETURNING id, notification_id, event_id, "groups", channels, message, member_count, created_at
 `
 
 type InsertNotificationParams struct {
 	NotificationID string `json:"notification_id"`
 	EventID        string `json:"event_id"`
 	Groups         string `json:"groups"`
+	Channels       string `json:"channels"`
 	Message        string `json:"message"`
 	MemberCount    int64  `json:"member_count"`
 	CreatedAt      string `json:"created_at"`
@@ -404,6 +407,7 @@ func (q *Queries) InsertNotification(ctx context.Context, arg InsertNotification
 		arg.NotificationID,
 		arg.EventID,
 		arg.Groups,
+		arg.Channels,
 		arg.Message,
 		arg.MemberCount,
 		arg.CreatedAt,
@@ -414,6 +418,7 @@ func (q *Queries) InsertNotification(ctx context.Context, arg InsertNotification
 		&i.NotificationID,
 		&i.EventID,
 		&i.Groups,
+		&i.Channels,
 		&i.Message,
 		&i.MemberCount,
 		&i.CreatedAt,
@@ -775,7 +780,7 @@ func (q *Queries) ListInFlightVoiceDeliveries(ctx context.Context) ([]Delivery, 
 }
 
 const listNotificationsByEventID = `-- name: ListNotificationsByEventID :many
-SELECT id, notification_id, event_id, "groups", message, member_count, created_at FROM notifications WHERE event_id = ? ORDER BY created_at DESC
+SELECT id, notification_id, event_id, "groups", channels, message, member_count, created_at FROM notifications WHERE event_id = ? ORDER BY created_at DESC
 `
 
 func (q *Queries) ListNotificationsByEventID(ctx context.Context, eventID string) ([]Notification, error) {
@@ -792,6 +797,7 @@ func (q *Queries) ListNotificationsByEventID(ctx context.Context, eventID string
 			&i.NotificationID,
 			&i.EventID,
 			&i.Groups,
+			&i.Channels,
 			&i.Message,
 			&i.MemberCount,
 			&i.CreatedAt,

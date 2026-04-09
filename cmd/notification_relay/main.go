@@ -86,8 +86,16 @@ func main() {
 		poller.Run(ctx)
 	}()
 
+	// Twilio delivery providers (only constructed when AccountSID is configured)
+	var smsProvider notify.SMSProvider
+	var voiceProvider notify.VoiceProvider
+	if cfg.Twilio.AccountSID != "" {
+		smsProvider = notify.NewTwilioSMS(cfg.Twilio)
+		voiceProvider = notify.NewTwilioVoice(cfg.Twilio)
+	}
+
 	// Dispatcher
-	dispatcher := notify.NewDispatcher(cfg.Notify, writerQ, jobQueue, logger)
+	dispatcher := notify.NewDispatcher(cfg.Notify, writerQ, jobQueue, smsProvider, voiceProvider, nil, logger)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

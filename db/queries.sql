@@ -38,8 +38,8 @@ SELECT * FROM events ORDER BY start_time DESC LIMIT ? OFFSET ?;
 -- notifications
 
 -- name: InsertNotification :one
-INSERT INTO notifications (notification_id, event_id, groups, message, member_count, created_at)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO notifications (notification_id, event_id, groups, channels, message, member_count, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetNotificationByID :one

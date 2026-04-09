@@ -71,6 +71,7 @@ type Notification struct {
 	NotificationID string `json:"notification_id"`
 	EventID        string `json:"event_id"`
 	Groups         string `json:"groups"`
+	Channels       string `json:"channels"`
 	Message        string `json:"message"`
 	MemberCount    int64  `json:"member_count"`
 	CreatedAt      string `json:"created_at"`
