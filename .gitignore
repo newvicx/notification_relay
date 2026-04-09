@@ -1,0 +1,37 @@
+# Binaries
+/notification_relay
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Build output
+/bin/
+/dist/
+
+# Config files with credentials
+config.yaml
+config.yml
+*.env
+.env
+
+# Test binary and coverage
+*.test
+*.out
+coverage.html
+
+# SQLite databases
+*.db
+*.db-shm
+*.db-wal
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
