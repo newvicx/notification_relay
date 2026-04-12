@@ -106,8 +106,7 @@ func (s *Syncer) syncGroup(ctx context.Context, groupName string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("begin transaction: %w", err)
 	}
-	// CLAUDE: I dont think you need the err != nil check. The rollback function
-	// is a no op of the tx commits which is what happens if we have no errors.
+
 	defer func() {
 		if err != nil {
 			_ = tx.Rollback()
