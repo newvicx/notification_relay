@@ -90,6 +90,7 @@ type LDAPConfig struct {
 
 type TwilioConfig struct {
 	AccountSID   string        `yaml:"account_sid"`
+	TokenSID     string        `yaml:"token_sid"`
 	AuthToken    string        `yaml:"auth_token"`
 	FromNumber   string        `yaml:"from_number"`
 	PollInterval time.Duration `yaml:"poll_interval"`

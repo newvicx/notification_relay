@@ -47,12 +47,12 @@ func uuidV7() string {
 
 // twilioPost performs a form-encoded POST to the Twilio REST API with HTTP Basic
 // auth and returns the raw JSON response body.
-func twilioPost(client *http.Client, accountSID, authToken, apiURL string, form url.Values) ([]byte, error) {
+func twilioPost(client *http.Client, tokenSID, authToken, apiURL string, form url.Values) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodPost, apiURL, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, err
 	}
-	req.SetBasicAuth(accountSID, authToken)
+	req.SetBasicAuth(tokenSID, authToken)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := client.Do(req)
@@ -75,12 +75,12 @@ func twilioPost(client *http.Client, accountSID, authToken, apiURL string, form 
 
 // twilioGet performs an authenticated GET to the Twilio REST API and returns
 // the raw JSON response body.
-func twilioGet(client *http.Client, accountSID, authToken, apiURL string) ([]byte, error) {
+func twilioGet(client *http.Client, tokenSID, authToken, apiURL string) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.SetBasicAuth(accountSID, authToken)
+	req.SetBasicAuth(tokenSID, authToken)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -111,6 +111,7 @@ type twilioResponse struct {
 // TwilioSMS implements SMSProvider using the Twilio Messages REST API.
 type TwilioSMS struct {
 	accountSID string
+	tokenSID   string
 	authToken  string
 	fromNumber string
 	client     *http.Client
@@ -120,6 +121,7 @@ type TwilioSMS struct {
 func NewTwilioSMS(cfg config.TwilioConfig) *TwilioSMS {
 	return &TwilioSMS{
 		accountSID: cfg.AccountSID,
+		tokenSID:   cfg.TokenSID,
 		authToken:  cfg.AuthToken,
 		fromNumber: cfg.FromNumber,
 		client:     &http.Client{Timeout: 30 * time.Second},
@@ -138,7 +140,7 @@ func (t *TwilioSMS) Send(to, message string) (sid, status string, err error) {
 		"From": {t.fromNumber},
 		"Body": {message},
 	}
-	body, err := twilioPost(t.client, t.accountSID, t.authToken, apiURL, form)
+	body, err := twilioPost(t.client, t.tokenSID, t.authToken, apiURL, form)
 	if err != nil {
 		return "", "", err
 	}

@@ -151,17 +151,13 @@ func mapTwilioStatus(channel, twilioStatus string) (status string, terminal bool
 	switch channel {
 	case "voice":
 		switch twilioStatus {
-		case "completed":
-			return "delivered", true
-		case "failed", "busy", "no-answer", "canceled":
-			return "failed", true
+		case "completed", "failed", "busy", "no-answer", "canceled":
+			return twilioStatus, true
 		}
-	default: // sms
+	case "sms":
 		switch twilioStatus {
-		case "delivered":
-			return "delivered", true
-		case "undelivered", "failed":
-			return "failed", true
+		case "delivered", "undelivered", "failed":
+			return twilioStatus, true
 		}
 	}
 	return twilioStatus, false
