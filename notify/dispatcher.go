@@ -100,6 +100,7 @@ func (d *Dispatcher) processJob(ctx context.Context, job Job) {
 		channelSet[c] = true
 	}
 
+	var totalMembers int
 	for _, group := range groups {
 		members, err := d.q.ListGroupMembers(ctx, group)
 		if err != nil {
@@ -107,6 +108,7 @@ func (d *Dispatcher) processJob(ctx context.Context, job Job) {
 				"notification_id", job.NotificationID, "group", group, "error", err)
 			continue
 		}
+		totalMembers += len(members)
 		for _, member := range members {
 			if channelSet["sms"] && d.sms != nil && member.Mobile.Valid && member.Mobile.String != "" {
 				d.dispatchSMS(ctx, notif, group, member)
@@ -118,6 +120,14 @@ func (d *Dispatcher) processJob(ctx context.Context, job Job) {
 				d.dispatchEmail(ctx, notif, group, member)
 			}
 		}
+	}
+
+	if err := d.q.UpdateNotificationMemberCount(ctx, db.UpdateNotificationMemberCountParams{
+		MemberCount:    int64(totalMembers),
+		NotificationID: notif.NotificationID,
+	}); err != nil {
+		d.logger.Error("dispatcher: update member count failed",
+			"notification_id", notif.NotificationID, "error", err)
 	}
 }
 

@@ -17,20 +17,22 @@ import (
 // voice and SMS deliveries. It is needed because the application is behind a
 // firewall that prevents Twilio from delivering webhook callbacks.
 type Poller struct {
-	cfg    config.TwilioConfig
-	writer *sql.DB
-	q      *db.Queries
-	client *http.Client
-	logger *slog.Logger
+	cfg     config.TwilioConfig
+	writer  *sql.DB
+	q       *db.Queries
+	client  *http.Client
+	baseURL string
+	logger  *slog.Logger
 }
 
 func NewPoller(cfg config.TwilioConfig, writer *sql.DB, logger *slog.Logger) *Poller {
 	return &Poller{
-		cfg:    cfg,
-		writer: writer,
-		q:      db.New(writer),
-		client: &http.Client{Timeout: 15 * time.Second},
-		logger: logger,
+		cfg:     cfg,
+		writer:  writer,
+		q:       db.New(writer),
+		client:  &http.Client{Timeout: 15 * time.Second},
+		baseURL: "https://api.twilio.com",
+		logger:  logger,
 	}
 }
 
@@ -90,13 +92,13 @@ func (p *Poller) checkDelivery(ctx context.Context, d db.Delivery) {
 	switch d.Channel {
 	case "voice":
 		apiURL = fmt.Sprintf(
-			"https://api.twilio.com/2010-04-01/Accounts/%s/Calls/%s.json",
-			p.cfg.AccountSID, d.DeliveryID,
+			"%s/2010-04-01/Accounts/%s/Calls/%s.json",
+			p.baseURL, p.cfg.AccountSID, d.DeliveryID,
 		)
 	default: // sms
 		apiURL = fmt.Sprintf(
-			"https://api.twilio.com/2010-04-01/Accounts/%s/Messages/%s.json",
-			p.cfg.AccountSID, d.DeliveryID,
+			"%s/2010-04-01/Accounts/%s/Messages/%s.json",
+			p.baseURL, p.cfg.AccountSID, d.DeliveryID,
 		)
 	}
 

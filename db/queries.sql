@@ -51,6 +51,9 @@ SELECT * FROM notifications WHERE notification_id = ?;
 -- name: ListNotificationsByEventID :many
 SELECT * FROM notifications WHERE event_id = ? ORDER BY created_at DESC;
 
+-- name: UpdateNotificationMemberCount :exec
+UPDATE notifications SET member_count = ? WHERE notification_id = ?;
+
 -- deliveries
 
 -- name: InsertDelivery :one

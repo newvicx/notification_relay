@@ -898,3 +898,17 @@ func (q *Queries) UpdateEventEndTime(ctx context.Context, arg UpdateEventEndTime
 	_, err := q.db.ExecContext(ctx, updateEventEndTime, arg.EndTime, arg.EventID)
 	return err
 }
+
+const updateNotificationMemberCount = `-- name: UpdateNotificationMemberCount :exec
+UPDATE notifications SET member_count = ? WHERE notification_id = ?
+`
+
+type UpdateNotificationMemberCountParams struct {
+	MemberCount    int64  `json:"member_count"`
+	NotificationID string `json:"notification_id"`
+}
+
+func (q *Queries) UpdateNotificationMemberCount(ctx context.Context, arg UpdateNotificationMemberCountParams) error {
+	_, err := q.db.ExecContext(ctx, updateNotificationMemberCount, arg.MemberCount, arg.NotificationID)
+	return err
+}

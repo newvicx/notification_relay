@@ -114,6 +114,7 @@ type TwilioSMS struct {
 	tokenSID   string
 	authToken  string
 	fromNumber string
+	baseURL    string
 	client     *http.Client
 }
 
@@ -124,6 +125,7 @@ func NewTwilioSMS(cfg config.TwilioConfig) *TwilioSMS {
 		tokenSID:   cfg.TokenSID,
 		authToken:  cfg.AuthToken,
 		fromNumber: cfg.FromNumber,
+		baseURL:    "https://api.twilio.com",
 		client:     &http.Client{Timeout: 30 * time.Second},
 	}
 }
@@ -132,8 +134,8 @@ func NewTwilioSMS(cfg config.TwilioConfig) *TwilioSMS {
 // It returns the Twilio message SID, the initial status from Twilio, and any error.
 func (t *TwilioSMS) Send(to, message string) (sid, status string, err error) {
 	apiURL := fmt.Sprintf(
-		"https://api.twilio.com/2010-04-01/Accounts/%s/Messages.json",
-		t.accountSID,
+		"%s/2010-04-01/Accounts/%s/Messages.json",
+		t.baseURL, t.accountSID,
 	)
 	form := url.Values{
 		"To":   {to},
@@ -157,6 +159,7 @@ type TwilioVoice struct {
 	accountSID string
 	authToken  string
 	fromNumber string
+	baseURL    string
 	client     *http.Client
 }
 
@@ -166,6 +169,7 @@ func NewTwilioVoice(cfg config.TwilioConfig) *TwilioVoice {
 		accountSID: cfg.AccountSID,
 		authToken:  cfg.AuthToken,
 		fromNumber: cfg.FromNumber,
+		baseURL:    "https://api.twilio.com",
 		client:     &http.Client{Timeout: 30 * time.Second},
 	}
 }
@@ -174,8 +178,8 @@ func NewTwilioVoice(cfg config.TwilioConfig) *TwilioVoice {
 // It returns the Twilio call SID, the initial status from Twilio, and any error.
 func (t *TwilioVoice) Call(to, message string) (sid, status string, err error) {
 	apiURL := fmt.Sprintf(
-		"https://api.twilio.com/2010-04-01/Accounts/%s/Calls.json",
-		t.accountSID,
+		"%s/2010-04-01/Accounts/%s/Calls.json",
+		t.baseURL, t.accountSID,
 	)
 	twiml := fmt.Sprintf("<Response><Say>%s</Say></Response>", message)
 	form := url.Values{

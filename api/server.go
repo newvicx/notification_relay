@@ -44,12 +44,34 @@ func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, lo
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/notifications",
-		s.authenticate(
-			s.requirePermissions(PermPublish)(
-				http.HandlerFunc(s.handlePublishNotification),
-			),
-		),
-	)
+		s.authenticate(s.requirePermissions(PermPublish)(http.HandlerFunc(s.handlePublishNotification))))
+
+	// Events
+	mux.Handle("POST /api/v1/events",
+		s.authenticate(s.requirePermissions(PermPublish)(http.HandlerFunc(s.handleCreateEvent))))
+	mux.Handle("GET /api/v1/events",
+		s.authenticate(s.requirePermissions(PermRead)(http.HandlerFunc(s.handleListEvents))))
+	mux.Handle("GET /api/v1/events/{event_id}",
+		s.authenticate(s.requirePermissions(PermRead)(http.HandlerFunc(s.handleGetEvent))))
+	mux.Handle("POST /api/v1/events/{event_id}/end",
+		s.authenticate(s.requirePermissions(PermPublish)(http.HandlerFunc(s.handleEndEvent))))
+	mux.Handle("GET /api/v1/events/{event_id}/notifications",
+		s.authenticate(s.requirePermissions(PermRead)(http.HandlerFunc(s.handleListEventNotifications))))
+
+	// Notifications
+	mux.Handle("GET /api/v1/notifications/{notification_id}",
+		s.authenticate(s.requirePermissions(PermRead)(http.HandlerFunc(s.handleGetNotification))))
+	mux.Handle("GET /api/v1/notifications/{notification_id}/deliveries",
+		s.authenticate(s.requirePermissions(PermRead)(http.HandlerFunc(s.handleListNotificationDeliveries))))
+
+	// Deliveries
+	mux.Handle("GET /api/v1/deliveries/{delivery_id}",
+		s.authenticate(s.requirePermissions(PermRead)(http.HandlerFunc(s.handleGetDelivery))))
+}
+
+// Handler returns the underlying HTTP handler, useful for testing with httptest.
+func (s *Server) Handler() http.Handler {
+	return s.srv.Handler
 }
 
 // Start begins serving HTTP requests. It blocks until the server is shut down.
