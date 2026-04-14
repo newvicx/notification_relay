@@ -67,6 +67,18 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	// Deliveries
 	mux.Handle("GET /api/v1/deliveries/{delivery_id}",
 		s.authenticate(s.requirePermissions(PermRead)(http.HandlerFunc(s.handleGetDelivery))))
+
+	// Email templates (write requires admin; read requires reader)
+	mux.Handle("POST /api/v1/templates",
+		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleCreateTemplate))))
+	mux.Handle("GET /api/v1/templates",
+		s.authenticate(s.requirePermissions(PermRead)(http.HandlerFunc(s.handleListTemplates))))
+	mux.Handle("GET /api/v1/templates/{template_name}",
+		s.authenticate(s.requirePermissions(PermRead)(http.HandlerFunc(s.handleGetTemplate))))
+	mux.Handle("PUT /api/v1/templates/{template_name}",
+		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleUpdateTemplate))))
+	mux.Handle("DELETE /api/v1/templates/{template_name}",
+		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleDeleteTemplate))))
 }
 
 // Handler returns the underlying HTTP handler, useful for testing with httptest.

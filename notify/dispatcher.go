@@ -246,27 +246,114 @@ func (d *Dispatcher) dispatchVoice(ctx context.Context, notif db.Notification, g
 }
 
 func (d *Dispatcher) dispatchEmail(ctx context.Context, notif db.Notification, group string, member db.GroupMember) {
-	// Email delivery is not yet implemented; record a failed delivery row so the
-	// attempt is visible in the audit trail.
+	deliveryID := uuidV7()
+	sentAt := time.Now().UTC().Format(time.RFC3339)
+
+	recordFailed := func(reason string) {
+		delivery, err := d.q.InsertDelivery(ctx, db.InsertDeliveryParams{
+			DeliveryID:     deliveryID,
+			NotificationID: notif.NotificationID,
+			Group:          group,
+			Member:         member.Username,
+			Channel:        "email",
+			Status:         "failed",
+			EmailTemplate:  notif.EmailTemplate,
+			EmailVars:      notif.EmailVars,
+			Attempt:        1,
+			SentAt:         sentAt,
+		})
+		if err != nil {
+			d.logger.Error("dispatcher: insert email delivery failed",
+				"notification_id", notif.NotificationID, "member", member.Username, "error", err)
+			return
+		}
+		_ = d.q.UpdateDeliveryError(ctx, db.UpdateDeliveryErrorParams{
+			DeliveryID:   delivery.DeliveryID,
+			ErrorMessage: sql.NullString{String: reason, Valid: true},
+		})
+	}
+
+	// Require a template on the notification.
+	if !notif.EmailTemplate.Valid || notif.EmailTemplate.String == "" {
+		recordFailed("no email template specified")
+		return
+	}
+
+	// Load template from DB.
+	tmpl, err := d.q.GetEmailTemplateByName(ctx, notif.EmailTemplate.String)
+	if err != nil {
+		d.logger.Error("dispatcher: load email template failed",
+			"template", notif.EmailTemplate.String, "error", err)
+		recordFailed(fmt.Sprintf("template not found: %s", notif.EmailTemplate.String))
+		return
+	}
+
+	// Parse vars from notification.
+	vars := make(map[string]string)
+	if notif.EmailVars.Valid && notif.EmailVars.String != "" {
+		if err := json.Unmarshal([]byte(notif.EmailVars.String), &vars); err != nil {
+			recordFailed("invalid email_vars JSON")
+			return
+		}
+	}
+
+	// Validate all required vars are present.
+	var requiredVars []string
+	if err := json.Unmarshal([]byte(tmpl.RequiredVars), &requiredVars); err != nil {
+		recordFailed("template has invalid required_vars")
+		return
+	}
+	for _, v := range requiredVars {
+		if _, ok := vars[v]; !ok {
+			recordFailed(fmt.Sprintf("missing required template variable: %s", v))
+			return
+		}
+	}
+
+	// Render subject and body.
+	subject, body, err := RenderTemplate(tmpl.Subject, tmpl.Body, vars)
+	if err != nil {
+		d.logger.Error("dispatcher: render email template failed",
+			"template", tmpl.TemplateName, "error", err)
+		recordFailed(fmt.Sprintf("template render error: %v", err))
+		return
+	}
+
+	// Send.
+	sendErr := d.email.Send(ctx, member.Email.String, subject, body)
+
+	status := "sent"
+	if sendErr != nil {
+		status = "failed"
+		d.logger.Warn("dispatcher: email send failed",
+			"notification_id", notif.NotificationID,
+			"member", member.Username,
+			"error", sendErr)
+	}
+
 	delivery, err := d.q.InsertDelivery(ctx, db.InsertDeliveryParams{
-		DeliveryID:     uuidV7(),
+		DeliveryID:     deliveryID,
 		NotificationID: notif.NotificationID,
 		Group:          group,
 		Member:         member.Username,
 		Channel:        "email",
-		Status:         "failed",
+		Status:         status,
+		EmailTemplate:  notif.EmailTemplate,
+		EmailVars:      notif.EmailVars,
 		Attempt:        1,
-		SentAt:         time.Now().UTC().Format(time.RFC3339),
+		SentAt:         sentAt,
 	})
 	if err != nil {
 		d.logger.Error("dispatcher: insert email delivery failed",
 			"notification_id", notif.NotificationID, "member", member.Username, "error", err)
 		return
 	}
-	_ = d.q.UpdateDeliveryError(ctx, db.UpdateDeliveryErrorParams{
-		DeliveryID:   delivery.DeliveryID,
-		ErrorMessage: sql.NullString{String: "email provider not implemented", Valid: true},
-	})
+	if sendErr != nil {
+		_ = d.q.UpdateDeliveryError(ctx, db.UpdateDeliveryErrorParams{
+			DeliveryID:   delivery.DeliveryID,
+			ErrorMessage: sql.NullString{String: errorString(sendErr), Valid: true},
+		})
+	}
 }
 
 func errorString(err error) string {

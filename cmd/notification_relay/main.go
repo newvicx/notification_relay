@@ -94,8 +94,14 @@ func main() {
 		voiceProvider = notify.NewTwilioVoice(cfg.Twilio)
 	}
 
+	// SMTP email provider (only constructed when host is configured)
+	var emailProvider notify.EmailProvider
+	if cfg.SMTP.Host != "" {
+		emailProvider = notify.NewSMTPEmail(cfg.SMTP)
+	}
+
 	// Dispatcher
-	dispatcher := notify.NewDispatcher(cfg.Notify, writerQ, jobQueue, smsProvider, voiceProvider, nil, logger)
+	dispatcher := notify.NewDispatcher(cfg.Notify, writerQ, jobQueue, smsProvider, voiceProvider, emailProvider, logger)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

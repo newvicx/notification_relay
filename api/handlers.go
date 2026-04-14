@@ -21,15 +21,17 @@ var validChannels = map[string]bool{
 }
 
 type publishRequest struct {
-	EventID          string   `json:"event_id"`
-	EventURL         string   `json:"event_url"`
-	EventName        string   `json:"event_name"`
-	EventDescription string   `json:"event_description"`
-	EventSeverity    string   `json:"event_severity"`
-	StartTime        string   `json:"start_time"`
-	Groups           []string `json:"groups"`
-	Channels         []string `json:"channels"`
-	Message          string   `json:"message"`
+	EventID          string            `json:"event_id"`
+	EventURL         string            `json:"event_url"`
+	EventName        string            `json:"event_name"`
+	EventDescription string            `json:"event_description"`
+	EventSeverity    string            `json:"event_severity"`
+	StartTime        string            `json:"start_time"`
+	Groups           []string          `json:"groups"`
+	Channels         []string          `json:"channels"`
+	Message          string            `json:"message"`
+	EmailTemplate    string            `json:"email_template"`
+	EmailVars        map[string]string `json:"email_vars"`
 }
 
 type publishResponse struct {
@@ -74,6 +76,19 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Email channel requires a template.
+	hasEmail := false
+	for _, ch := range req.Channels {
+		if ch == "email" {
+			hasEmail = true
+			break
+		}
+	}
+	if hasEmail && req.EmailTemplate == "" {
+		http.Error(w, "email_template is required when email channel is specified", http.StatusBadRequest)
+		return
+	}
+
 	ctx := r.Context()
 
 	// Resolve or create the event record.
@@ -115,6 +130,16 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	var emailVarsJSON sql.NullString
+	if len(req.EmailVars) > 0 {
+		b, err := json.Marshal(req.EmailVars)
+		if err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		emailVarsJSON = sql.NullString{String: string(b), Valid: true}
+	}
+
 	notificationID := newUUIDV7()
 	notif, err := s.q.InsertNotification(ctx, db.InsertNotificationParams{
 		NotificationID: notificationID,
@@ -123,6 +148,8 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 		Channels:       string(channelsJSON),
 		Message:        req.Message,
 		MemberCount:    0,
+		EmailTemplate:  nullString(req.EmailTemplate),
+		EmailVars:      emailVarsJSON,
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
 	})
 	if err != nil {

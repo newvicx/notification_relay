@@ -67,12 +67,14 @@ type GroupMember struct {
 }
 
 type Notification struct {
-	ID             int64  `json:"id"`
-	NotificationID string `json:"notification_id"`
-	EventID        string `json:"event_id"`
-	Groups         string `json:"groups"`
-	Channels       string `json:"channels"`
-	Message        string `json:"message"`
-	MemberCount    int64  `json:"member_count"`
-	CreatedAt      string `json:"created_at"`
+	ID             int64          `json:"id"`
+	NotificationID string         `json:"notification_id"`
+	EventID        string         `json:"event_id"`
+	Groups         string         `json:"groups"`
+	Channels       string         `json:"channels"`
+	Message        string         `json:"message"`
+	MemberCount    int64          `json:"member_count"`
+	EmailTemplate  sql.NullString `json:"email_template"`
+	EmailVars      sql.NullString `json:"email_vars"`
+	CreatedAt      string         `json:"created_at"`
 }

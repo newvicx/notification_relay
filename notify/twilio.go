@@ -157,6 +157,7 @@ func (t *TwilioSMS) Send(to, message string) (sid, status string, err error) {
 // The message is delivered via TwiML <Say> with Twilio's text-to-speech engine.
 type TwilioVoice struct {
 	accountSID string
+	tokenSID   string
 	authToken  string
 	fromNumber string
 	baseURL    string
@@ -167,6 +168,7 @@ type TwilioVoice struct {
 func NewTwilioVoice(cfg config.TwilioConfig) *TwilioVoice {
 	return &TwilioVoice{
 		accountSID: cfg.AccountSID,
+		tokenSID:   cfg.TokenSID,
 		authToken:  cfg.AuthToken,
 		fromNumber: cfg.FromNumber,
 		baseURL:    "https://api.twilio.com",
@@ -187,7 +189,7 @@ func (t *TwilioVoice) Call(to, message string) (sid, status string, err error) {
 		"From":  {t.fromNumber},
 		"Twiml": {twiml},
 	}
-	body, err := twilioPost(t.client, t.accountSID, t.authToken, apiURL, form)
+	body, err := twilioPost(t.client, t.tokenSID, t.authToken, apiURL, form)
 	if err != nil {
 		return "", "", err
 	}

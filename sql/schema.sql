@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS notifications (
     channels        TEXT NOT NULL,
     message         TEXT NOT NULL,
     member_count    INTEGER NOT NULL,
+    email_template  TEXT,
+    email_vars      TEXT,
     created_at      TEXT NOT NULL,
     FOREIGN KEY (event_id)
         REFERENCES events(event_id)
