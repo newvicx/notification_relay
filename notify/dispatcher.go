@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"notification_relay/config"
@@ -19,13 +20,16 @@ type Job struct {
 
 // Dispatcher reads Jobs from the queue channel and fans them out to delivery providers.
 type Dispatcher struct {
-	cfg   config.NotifyConfig
-	q     *db.Queries
-	queue <-chan Job
+	cfg    config.NotifyConfig
+	q      *db.Queries
+	queue  <-chan Job
 	logger *slog.Logger
-	sms   SMSProvider   // nil if not configured
-	voice VoiceProvider // nil if not configured
-	email EmailProvider // nil if not configured
+	sms    SMSProvider   // nil if not configured
+	voice  VoiceProvider // nil if not configured
+	email  EmailProvider // nil if not configured
+	// sem bounds the total number of in-flight per-channel delivery goroutines
+	// across all workers (capacity = cfg.DeliveryConcurrency).
+	sem chan struct{}
 }
 
 func NewDispatcher(
@@ -37,14 +41,19 @@ func NewDispatcher(
 	email EmailProvider,
 	logger *slog.Logger,
 ) *Dispatcher {
+	concurrency := cfg.DeliveryConcurrency
+	if concurrency <= 0 {
+		concurrency = 16
+	}
 	return &Dispatcher{
-		cfg:   cfg,
-		q:     q,
-		queue: queue,
+		cfg:    cfg,
+		q:      q,
+		queue:  queue,
 		logger: logger,
-		sms:   sms,
-		voice: voice,
-		email: email,
+		sms:    sms,
+		voice:  voice,
+		email:  email,
+		sem:    make(chan struct{}, concurrency),
 	}
 }
 
@@ -100,7 +109,10 @@ func (d *Dispatcher) processJob(ctx context.Context, job Job) {
 		channelSet[c] = true
 	}
 
-	var totalMembers int
+	var (
+		wg           sync.WaitGroup
+		totalMembers int
+	)
 	for _, group := range groups {
 		members, err := d.q.ListGroupMembers(ctx, group)
 		if err != nil {
@@ -111,16 +123,35 @@ func (d *Dispatcher) processJob(ctx context.Context, job Job) {
 		totalMembers += len(members)
 		for _, member := range members {
 			if channelSet["sms"] && d.sms != nil && member.Mobile.Valid && member.Mobile.String != "" {
-				d.dispatchSMS(ctx, notif, group, member)
+				wg.Add(1)
+				go func(g string, m db.GroupMember) {
+					defer wg.Done()
+					d.sem <- struct{}{}
+					defer func() { <-d.sem }()
+					d.dispatchSMS(ctx, notif, g, m)
+				}(group, member)
 			}
 			if channelSet["voice"] && d.voice != nil && ((member.Mobile.Valid && member.Mobile.String != "") || (member.Work.Valid && member.Work.String != "")) {
-				d.dispatchVoice(ctx, notif, group, member)
+				wg.Add(1)
+				go func(g string, m db.GroupMember) {
+					defer wg.Done()
+					d.sem <- struct{}{}
+					defer func() { <-d.sem }()
+					d.dispatchVoice(ctx, notif, g, m)
+				}(group, member)
 			}
 			if channelSet["email"] && d.email != nil && member.Email.Valid && member.Email.String != "" {
-				d.dispatchEmail(ctx, notif, group, member)
+				wg.Add(1)
+				go func(g string, m db.GroupMember) {
+					defer wg.Done()
+					d.sem <- struct{}{}
+					defer func() { <-d.sem }()
+					d.dispatchEmail(ctx, notif, g, m)
+				}(group, member)
 			}
 		}
 	}
+	wg.Wait()
 
 	if err := d.q.UpdateNotificationMemberCount(ctx, db.UpdateNotificationMemberCountParams{
 		MemberCount:    int64(totalMembers),
