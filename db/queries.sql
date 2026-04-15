@@ -72,7 +72,9 @@ SELECT * FROM deliveries WHERE notification_id = ? ORDER BY sent_at DESC;
 -- name: ListInFlightVoiceDeliveries :many
 -- Non-terminal Twilio voice statuses: queued, ringing, in-progress
 SELECT * FROM deliveries
-WHERE channel = 'voice' AND status IN ('queued', 'ringing', 'in-progress')
+WHERE channel = 'voice'
+  AND status IN ('queued', 'ringing', 'in-progress')
+  AND status != 'poll_failed'
 ORDER BY sent_at;
 
 -- name: ListInFlightSMSDeliveries :many
@@ -80,8 +82,18 @@ ORDER BY sent_at;
 -- "sent" means the carrier accepted the message but delivery is not yet confirmed;
 -- polling continues until "delivered" or a terminal failure status is received.
 SELECT * FROM deliveries
-WHERE channel = 'sms' AND status IN ('accepted', 'scheduled', 'queued', 'sending', 'sent')
+WHERE channel = 'sms'
+  AND status IN ('accepted', 'scheduled', 'queued', 'sending', 'sent')
+  AND status != 'poll_failed'
 ORDER BY sent_at;
+
+-- name: IncrementPollAttempts :one
+-- Atomically increments poll_attempts and returns the updated delivery row,
+-- allowing the caller to decide whether the attempt limit has been reached.
+UPDATE deliveries
+SET poll_attempts = poll_attempts + 1
+WHERE delivery_id = ?
+RETURNING *;
 
 -- name: UpdateDeliveryStatus :exec
 -- error_message should include the Twilio error code when applicable,

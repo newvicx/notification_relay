@@ -19,6 +19,9 @@ type Querier interface {
 	GetNotificationByID(ctx context.Context, id int64) (Notification, error)
 	GetNotificationByNotificationID(ctx context.Context, notificationID string) (Notification, error)
 	IncrementDeliveryAttempt(ctx context.Context, arg IncrementDeliveryAttemptParams) error
+	// Atomically increments poll_attempts and returns the updated delivery row,
+	// allowing the caller to decide whether the attempt limit has been reached.
+	IncrementPollAttempts(ctx context.Context, deliveryID string) (Delivery, error)
 	// audit_log
 	InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) error
 	// deliveries

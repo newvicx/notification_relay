@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS deliveries (
     error_message   TEXT,
     sent_at         TEXT NOT NULL,
     completed_at    TEXT,
+    poll_attempts   INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (notification_id)
         REFERENCES notifications(notification_id)
         ON DELETE NO ACTION

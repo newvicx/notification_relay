@@ -33,6 +33,7 @@ type Delivery struct {
 	ErrorMessage   sql.NullString `json:"error_message"`
 	SentAt         string         `json:"sent_at"`
 	CompletedAt    sql.NullString `json:"completed_at"`
+	PollAttempts   int64          `json:"poll_attempts"`
 }
 
 type EmailTemplate struct {
