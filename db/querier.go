@@ -11,6 +11,7 @@ import (
 type Querier interface {
 	DeleteEmailTemplate(ctx context.Context, templateName string) error
 	DeleteGroupMembers(ctx context.Context, groupName string) error
+	DeleteSyncGroup(ctx context.Context, groupName string) error
 	GetDeliveryByDeliveryID(ctx context.Context, deliveryID string) (Delivery, error)
 	GetEmailTemplateByName(ctx context.Context, templateName string) (EmailTemplate, error)
 	GetEventByEventID(ctx context.Context, eventID string) (Event, error)
@@ -18,6 +19,7 @@ type Querier interface {
 	GetGroupMember(ctx context.Context, arg GetGroupMemberParams) (GroupMember, error)
 	GetNotificationByID(ctx context.Context, id int64) (Notification, error)
 	GetNotificationByNotificationID(ctx context.Context, notificationID string) (Notification, error)
+	GetSyncGroup(ctx context.Context, groupName string) (SyncGroup, error)
 	IncrementDeliveryAttempt(ctx context.Context, arg IncrementDeliveryAttemptParams) error
 	// Atomically increments poll_attempts and returns the updated delivery row,
 	// allowing the caller to decide whether the attempt limit has been reached.
@@ -34,6 +36,7 @@ type Querier interface {
 	InsertGroupMember(ctx context.Context, arg InsertGroupMemberParams) error
 	// notifications
 	InsertNotification(ctx context.Context, arg InsertNotificationParams) (Notification, error)
+	InsertSyncGroup(ctx context.Context, arg InsertSyncGroupParams) (SyncGroup, error)
 	ListAuditLogFiltered(ctx context.Context, arg ListAuditLogFilteredParams) ([]AuditLog, error)
 	ListDeliveriesByNotificationID(ctx context.Context, notificationID string) ([]Delivery, error)
 	ListDistinctGroupNames(ctx context.Context) ([]string, error)
@@ -47,6 +50,8 @@ type Querier interface {
 	// Non-terminal Twilio voice statuses: queued, ringing, in-progress
 	ListInFlightVoiceDeliveries(ctx context.Context) ([]Delivery, error)
 	ListNotificationsByEventID(ctx context.Context, eventID string) ([]Notification, error)
+	// sync_groups
+	ListSyncGroups(ctx context.Context) ([]SyncGroup, error)
 	// Records an error on a delivery without changing its status or completion time.
 	// Called when the application fails to dispatch to the delivery service (e.g.
 	// network error calling Twilio or SMTP), as distinct from a terminal status

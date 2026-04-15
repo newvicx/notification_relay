@@ -106,6 +106,16 @@ CREATE TABLE IF NOT EXISTS email_templates (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_templates_template_name ON email_templates (template_name);
 
 
+-- Sync groups controlled via API; the LDAP syncer mirrors each group into group_members
+
+CREATE TABLE IF NOT EXISTS sync_groups (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_name TEXT    NOT NULL UNIQUE,
+    created_at TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by TEXT    NOT NULL
+);
+
+
 -- Audit log for user interaction with system
 
 CREATE TABLE IF NOT EXISTS audit_log (

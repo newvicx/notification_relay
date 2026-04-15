@@ -54,7 +54,7 @@ type LDAPConfig struct {
 	UserBaseDN string `yaml:"user_base_dn"`
 	// GroupBaseDN is the root of the directory tree searched when resolving a
 	// group CN to its full distinguished name. Scope this to the OU that contains
-	// the groups listed in SyncGroups and AuthorizedGroups.
+	// the groups used for roles and LDAP sync.
 	// Example: "OU=Groups,DC=corp,DC=example,DC=com"
 	GroupBaseDN string `yaml:"group_base_dn"`
 	// GroupFilter is the LDAP object-class filter used when searching for groups.
@@ -70,10 +70,6 @@ type LDAPConfig struct {
 	//     publisher: [grp-oncall, grp-operations]
 	//     reader:    [grp-monitoring]
 	Roles map[string][]string `yaml:"roles"`
-	// SyncGroups is the list of LDAP group CNs that the syncer will mirror into
-	// the group_members table. These are the groups that can be targeted when
-	// publishing a notification.
-	SyncGroups   []string      `yaml:"sync_groups"`
 	SyncInterval time.Duration `yaml:"sync_interval"`
 	DialTimeout  time.Duration `yaml:"dial_timeout"`
 	// TLSSkipVerify disables certificate verification for ldaps:// connections.
@@ -128,6 +124,9 @@ type NotifyConfig struct {
 type LoggingConfig struct {
 	Level  string `yaml:"level"`
 	Format string `yaml:"format"`
+	// Dir is the directory where log files are written with daily rotation
+	// (e.g. "2006-01-02.log"). When empty, logs are written to stdout.
+	Dir string `yaml:"dir"`
 }
 
 func Load(path string) (*Config, error) {

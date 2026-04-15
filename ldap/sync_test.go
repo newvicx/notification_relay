@@ -51,7 +51,7 @@ func TestSyncGroup_InsertsMembers(t *testing.T) {
 			},
 		},
 	}
-	cfg := config.LDAPConfig{SyncGroups: []string{"grp-oncall"}, PageSize: 500}
+	cfg := config.LDAPConfig{PageSize: 500}
 	syncer := NewSyncer(cfg, client, conn, discardLogger())
 
 	count, err := syncer.syncGroup(context.Background(), "grp-oncall")
@@ -101,7 +101,7 @@ func TestSyncGroup_ReplacesExisting(t *testing.T) {
 			},
 		},
 	}
-	cfg := config.LDAPConfig{SyncGroups: []string{"grp-oncall"}, PageSize: 500}
+	cfg := config.LDAPConfig{PageSize: 500}
 	syncer := NewSyncer(cfg, client, conn, discardLogger())
 
 	if _, err := syncer.syncGroup(context.Background(), "grp-oncall"); err != nil {
@@ -122,7 +122,7 @@ func TestSyncGroup_EmptyGroup(t *testing.T) {
 	client := &mockClient{
 		members: map[string][]Member{"grp-empty": {}},
 	}
-	cfg := config.LDAPConfig{SyncGroups: []string{"grp-empty"}, PageSize: 500}
+	cfg := config.LDAPConfig{PageSize: 500}
 	syncer := NewSyncer(cfg, client, conn, discardLogger())
 
 	count, err := syncer.syncGroup(context.Background(), "grp-empty")
@@ -144,12 +144,12 @@ func TestSyncGroup_SkipsBlankUsername(t *testing.T) {
 	client := &mockClient{
 		members: map[string][]Member{
 			"grp-oncall": {
-				{Username: ""},            // blank — should be skipped
-				{Username: "valid-user"},  // should be inserted
+				{Username: ""},           // blank — should be skipped
+				{Username: "valid-user"}, // should be inserted
 			},
 		},
 	}
-	cfg := config.LDAPConfig{SyncGroups: []string{"grp-oncall"}, PageSize: 500}
+	cfg := config.LDAPConfig{PageSize: 500}
 	syncer := NewSyncer(cfg, client, conn, discardLogger())
 
 	count, err := syncer.syncGroup(context.Background(), "grp-oncall")
@@ -179,7 +179,7 @@ func TestSyncGroup_SearchError(t *testing.T) {
 	})
 
 	client := &mockClient{searchErr: context.DeadlineExceeded}
-	cfg := config.LDAPConfig{SyncGroups: []string{"grp-oncall"}, PageSize: 500}
+	cfg := config.LDAPConfig{PageSize: 500}
 	syncer := NewSyncer(cfg, client, conn, discardLogger())
 
 	_, err := syncer.syncGroup(context.Background(), "grp-oncall")
@@ -202,10 +202,18 @@ func TestSyncOnce_SyncsAllGroups(t *testing.T) {
 			"grp-b": {{Username: "bob"}},
 		},
 	}
-	cfg := config.LDAPConfig{
-		SyncGroups: []string{"grp-a", "grp-b"},
-		PageSize:   500,
+
+	// Seed sync groups into DB.
+	for _, name := range []string{"grp-a", "grp-b"} {
+		if _, err := q.InsertSyncGroup(context.Background(), db.InsertSyncGroupParams{
+			GroupName: name,
+			CreatedBy: "test",
+		}); err != nil {
+			t.Fatalf("InsertSyncGroup(%s): %v", name, err)
+		}
 	}
+
+	cfg := config.LDAPConfig{PageSize: 500}
 	syncer := NewSyncer(cfg, client, conn, discardLogger())
 	syncer.syncOnce(context.Background())
 
@@ -223,7 +231,16 @@ func TestSyncOnce_SyncsAllGroups(t *testing.T) {
 func TestSyncOnce_ConnectError(t *testing.T) {
 	conn, q := testutil.OpenDB(t)
 	client := &mockClient{connectErr: context.DeadlineExceeded}
-	cfg := config.LDAPConfig{SyncGroups: []string{"grp-oncall"}, PageSize: 500}
+
+	// Seed a sync group so the connect attempt is reached.
+	if _, err := q.InsertSyncGroup(context.Background(), db.InsertSyncGroupParams{
+		GroupName: "grp-oncall",
+		CreatedBy: "test",
+	}); err != nil {
+		t.Fatalf("InsertSyncGroup: %v", err)
+	}
+
+	cfg := config.LDAPConfig{PageSize: 500}
 	syncer := NewSyncer(cfg, client, conn, discardLogger())
 
 	// Must not panic; connect error is logged and sync is skipped.

@@ -28,6 +28,15 @@ func (q *Queries) DeleteGroupMembers(ctx context.Context, groupName string) erro
 	return err
 }
 
+const deleteSyncGroup = `-- name: DeleteSyncGroup :exec
+DELETE FROM sync_groups WHERE group_name = ?
+`
+
+func (q *Queries) DeleteSyncGroup(ctx context.Context, groupName string) error {
+	_, err := q.db.ExecContext(ctx, deleteSyncGroup, groupName)
+	return err
+}
+
 const getDeliveryByDeliveryID = `-- name: GetDeliveryByDeliveryID :one
 SELECT id, delivery_id, notification_id, "group", member, channel, status, email_template, email_vars, attempt, error_message, sent_at, completed_at, poll_attempts FROM deliveries WHERE delivery_id = ?
 `
@@ -180,6 +189,22 @@ func (q *Queries) GetNotificationByNotificationID(ctx context.Context, notificat
 	return i, err
 }
 
+const getSyncGroup = `-- name: GetSyncGroup :one
+SELECT id, group_name, created_at, created_by FROM sync_groups WHERE group_name = ? LIMIT 1
+`
+
+func (q *Queries) GetSyncGroup(ctx context.Context, groupName string) (SyncGroup, error) {
+	row := q.db.QueryRowContext(ctx, getSyncGroup, groupName)
+	var i SyncGroup
+	err := row.Scan(
+		&i.ID,
+		&i.GroupName,
+		&i.CreatedAt,
+		&i.CreatedBy,
+	)
+	return i, err
+}
+
 const incrementDeliveryAttempt = `-- name: IncrementDeliveryAttempt :exec
 UPDATE deliveries
 SET attempt = attempt + 1, sent_at = ?
@@ -194,6 +219,37 @@ type IncrementDeliveryAttemptParams struct {
 func (q *Queries) IncrementDeliveryAttempt(ctx context.Context, arg IncrementDeliveryAttemptParams) error {
 	_, err := q.db.ExecContext(ctx, incrementDeliveryAttempt, arg.SentAt, arg.DeliveryID)
 	return err
+}
+
+const incrementPollAttempts = `-- name: IncrementPollAttempts :one
+UPDATE deliveries
+SET poll_attempts = poll_attempts + 1
+WHERE delivery_id = ?
+RETURNING id, delivery_id, notification_id, "group", member, channel, status, email_template, email_vars, attempt, error_message, sent_at, completed_at, poll_attempts
+`
+
+// Atomically increments poll_attempts and returns the updated delivery row,
+// allowing the caller to decide whether the attempt limit has been reached.
+func (q *Queries) IncrementPollAttempts(ctx context.Context, deliveryID string) (Delivery, error) {
+	row := q.db.QueryRowContext(ctx, incrementPollAttempts, deliveryID)
+	var i Delivery
+	err := row.Scan(
+		&i.ID,
+		&i.DeliveryID,
+		&i.NotificationID,
+		&i.Group,
+		&i.Member,
+		&i.Channel,
+		&i.Status,
+		&i.EmailTemplate,
+		&i.EmailVars,
+		&i.Attempt,
+		&i.ErrorMessage,
+		&i.SentAt,
+		&i.CompletedAt,
+		&i.PollAttempts,
+	)
+	return i, err
 }
 
 const insertAuditLog = `-- name: InsertAuditLog :exec
@@ -434,6 +490,27 @@ func (q *Queries) InsertNotification(ctx context.Context, arg InsertNotification
 		&i.EmailTemplate,
 		&i.EmailVars,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const insertSyncGroup = `-- name: InsertSyncGroup :one
+INSERT INTO sync_groups (group_name, created_by) VALUES (?, ?) RETURNING id, group_name, created_at, created_by
+`
+
+type InsertSyncGroupParams struct {
+	GroupName string `json:"group_name"`
+	CreatedBy string `json:"created_by"`
+}
+
+func (q *Queries) InsertSyncGroup(ctx context.Context, arg InsertSyncGroupParams) (SyncGroup, error) {
+	row := q.db.QueryRowContext(ctx, insertSyncGroup, arg.GroupName, arg.CreatedBy)
+	var i SyncGroup
+	err := row.Scan(
+		&i.ID,
+		&i.GroupName,
+		&i.CreatedAt,
+		&i.CreatedBy,
 	)
 	return i, err
 }
@@ -806,6 +883,40 @@ func (q *Queries) ListNotificationsByEventID(ctx context.Context, eventID string
 	return items, nil
 }
 
+const listSyncGroups = `-- name: ListSyncGroups :many
+
+SELECT id, group_name, created_at, created_by FROM sync_groups ORDER BY group_name
+`
+
+// sync_groups
+func (q *Queries) ListSyncGroups(ctx context.Context) ([]SyncGroup, error) {
+	rows, err := q.db.QueryContext(ctx, listSyncGroups)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SyncGroup
+	for rows.Next() {
+		var i SyncGroup
+		if err := rows.Scan(
+			&i.ID,
+			&i.GroupName,
+			&i.CreatedAt,
+			&i.CreatedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateDeliveryError = `-- name: UpdateDeliveryError :exec
 UPDATE deliveries
 SET error_message = ?
@@ -902,35 +1013,4 @@ type UpdateNotificationMemberCountParams struct {
 func (q *Queries) UpdateNotificationMemberCount(ctx context.Context, arg UpdateNotificationMemberCountParams) error {
 	_, err := q.db.ExecContext(ctx, updateNotificationMemberCount, arg.MemberCount, arg.NotificationID)
 	return err
-}
-
-const incrementPollAttempts = `-- name: IncrementPollAttempts :one
--- Atomically increments poll_attempts and returns the updated delivery row,
--- allowing the caller to decide whether the attempt limit has been reached.
-UPDATE deliveries
-SET poll_attempts = poll_attempts + 1
-WHERE delivery_id = ?
-RETURNING id, delivery_id, notification_id, "group", member, channel, status, email_template, email_vars, attempt, error_message, sent_at, completed_at, poll_attempts
-`
-
-func (q *Queries) IncrementPollAttempts(ctx context.Context, deliveryID string) (Delivery, error) {
-	row := q.db.QueryRowContext(ctx, incrementPollAttempts, deliveryID)
-	var i Delivery
-	err := row.Scan(
-		&i.ID,
-		&i.DeliveryID,
-		&i.NotificationID,
-		&i.Group,
-		&i.Member,
-		&i.Channel,
-		&i.Status,
-		&i.EmailTemplate,
-		&i.EmailVars,
-		&i.Attempt,
-		&i.ErrorMessage,
-		&i.SentAt,
-		&i.CompletedAt,
-		&i.PollAttempts,
-	)
-	return i, err
 }

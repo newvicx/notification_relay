@@ -74,6 +74,14 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/groups/{group_name}/members",
 		s.authenticate(s.requirePermissions(PermRead)(http.HandlerFunc(s.handleListGroupMembers))))
 
+	// Sync groups (admin-only; controls which LDAP groups the syncer mirrors)
+	mux.Handle("GET /api/v1/sync-groups",
+		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleListSyncGroups))))
+	mux.Handle("POST /api/v1/sync-groups",
+		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleCreateSyncGroup))))
+	mux.Handle("DELETE /api/v1/sync-groups/{group_name}",
+		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleDeleteSyncGroup))))
+
 	// Audit log (admin-only)
 	mux.Handle("GET /api/v1/audit",
 		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleListAuditLog))))

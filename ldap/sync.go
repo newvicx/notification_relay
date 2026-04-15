@@ -11,7 +11,6 @@ import (
 	"notification_relay/db"
 )
 
-
 // Syncer periodically syncs LDAP group membership into the group_members table.
 // It performs a full delete + reinsert for each configured group on every sync
 // cycle. group_members is a reference snapshot with no FK dependents, so this
@@ -19,6 +18,7 @@ import (
 type Syncer struct {
 	cfg    config.LDAPConfig
 	client Client
+	q      *db.Queries // for reading sync_groups
 	writer *sql.DB
 	logger *slog.Logger
 }
@@ -28,6 +28,7 @@ func NewSyncer(cfg config.LDAPConfig, client Client, writer *sql.DB, logger *slo
 	return &Syncer{
 		cfg:    cfg,
 		client: client,
+		q:      db.New(writer),
 		writer: writer,
 		logger: logger,
 	}
@@ -53,8 +54,24 @@ func (s *Syncer) Run(ctx context.Context) {
 }
 
 func (s *Syncer) syncOnce(ctx context.Context) {
+	syncGroups, err := s.q.ListSyncGroups(ctx)
+	if err != nil {
+		s.logger.Error("ldap sync failed: list sync groups", "error", err)
+		return
+	}
+
+	if len(syncGroups) == 0 {
+		s.logger.Info("ldap sync skipped: no sync groups configured")
+		return
+	}
+
+	groupNames := make([]string, len(syncGroups))
+	for i, g := range syncGroups {
+		groupNames[i] = g.GroupName
+	}
+
 	start := time.Now()
-	s.logger.Info("ldap sync started", "groups", s.cfg.SyncGroups)
+	s.logger.Info("ldap sync started", "groups", groupNames)
 
 	if err := s.client.Connect(ctx); err != nil {
 		s.logger.Error("ldap sync failed: connect", "error", err)
@@ -69,11 +86,11 @@ func (s *Syncer) syncOnce(ctx context.Context) {
 	var totalMembers int
 	var groupErrors int
 
-	for _, groupName := range s.cfg.SyncGroups {
-		count, err := s.syncGroup(ctx, groupName)
+	for _, g := range syncGroups {
+		count, err := s.syncGroup(ctx, g.GroupName)
 		if err != nil {
 			s.logger.Error("ldap sync failed for group",
-				"group", groupName,
+				"group", g.GroupName,
 				"error", err,
 			)
 			groupErrors++
@@ -81,13 +98,13 @@ func (s *Syncer) syncOnce(ctx context.Context) {
 		}
 		totalMembers += count
 		s.logger.Info("ldap group synced",
-			"group", groupName,
+			"group", g.GroupName,
 			"member_count", count,
 		)
 	}
 
 	s.logger.Info("ldap sync completed",
-		"groups_synced", len(s.cfg.SyncGroups)-groupErrors,
+		"groups_synced", len(syncGroups)-groupErrors,
 		"groups_failed", groupErrors,
 		"total_members", totalMembers,
 		"duration", time.Since(start).String(),
