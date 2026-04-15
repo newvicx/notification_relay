@@ -113,7 +113,7 @@ func (d *Dispatcher) processJob(ctx context.Context, job Job) {
 			if channelSet["sms"] && d.sms != nil && member.Mobile.Valid && member.Mobile.String != "" {
 				d.dispatchSMS(ctx, notif, group, member)
 			}
-			if channelSet["voice"] && d.voice != nil && member.Work.Valid && member.Work.String != "" {
+			if channelSet["voice"] && d.voice != nil && (member.Mobile.Valid || member.Work.Valid) && member.Work.String != "" {
 				d.dispatchVoice(ctx, notif, group, member)
 			}
 			if channelSet["email"] && d.email != nil && member.Email.Valid && member.Email.String != "" {
@@ -205,7 +205,11 @@ func (d *Dispatcher) dispatchVoice(ctx context.Context, notif db.Notification, g
 			}
 		}
 		finalAttempt = n + 1
-		sid, status, lastErr = d.voice.Call(member.Work.String, notif.Message)
+		if member.Mobile.Valid {
+			sid, status, lastErr = d.voice.Call(member.Mobile.String, notif.Message)
+		} else {
+			sid, status, lastErr = d.voice.Call(member.Work.String, notif.Message)
+		}
 		if lastErr == nil {
 			break
 		}
