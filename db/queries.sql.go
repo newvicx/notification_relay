@@ -197,8 +197,8 @@ func (q *Queries) IncrementDeliveryAttempt(ctx context.Context, arg IncrementDel
 
 const insertAuditLog = `-- name: InsertAuditLog :exec
 
-INSERT INTO audit_log (timestamp, username, ip_address, action, record_id, impacted_table, old_values, new_values)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO audit_log (timestamp, username, ip_address, action, impacted_table, old_values, new_values)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertAuditLogParams struct {
@@ -206,7 +206,6 @@ type InsertAuditLogParams struct {
 	Username      string         `json:"username"`
 	IpAddress     sql.NullString `json:"ip_address"`
 	Action        string         `json:"action"`
-	RecordID      sql.NullInt64  `json:"record_id"`
 	ImpactedTable string         `json:"impacted_table"`
 	OldValues     sql.NullString `json:"old_values"`
 	NewValues     sql.NullString `json:"new_values"`
@@ -219,7 +218,6 @@ func (q *Queries) InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) 
 		arg.Username,
 		arg.IpAddress,
 		arg.Action,
-		arg.RecordID,
 		arg.ImpactedTable,
 		arg.OldValues,
 		arg.NewValues,
@@ -438,17 +436,31 @@ func (q *Queries) InsertNotification(ctx context.Context, arg InsertNotification
 	return i, err
 }
 
-const listAuditLog = `-- name: ListAuditLog :many
-SELECT id, timestamp, username, ip_address, "action", record_id, impacted_table, old_values, new_values FROM audit_log ORDER BY timestamp DESC LIMIT ? OFFSET ?
+const listAuditLogFiltered = `-- name: ListAuditLogFiltered :many
+SELECT id, timestamp, username, ip_address, "action", impacted_table, old_values, new_values FROM audit_log
+WHERE (?1 = '' OR username = ?1)
+  AND (?2 = '' OR timestamp >= ?2)
+  AND (?3 = '' OR timestamp <= ?3)
+ORDER BY timestamp DESC
+LIMIT ?5 OFFSET ?4
 `
 
-type ListAuditLogParams struct {
-	Limit  int64 `json:"limit"`
-	Offset int64 `json:"offset"`
+type ListAuditLogFilteredParams struct {
+	Username interface{} `json:"username"`
+	FromTime interface{} `json:"from_time"`
+	ToTime   interface{} `json:"to_time"`
+	Offset   int64       `json:"offset"`
+	Limit    int64       `json:"limit"`
 }
 
-func (q *Queries) ListAuditLog(ctx context.Context, arg ListAuditLogParams) ([]AuditLog, error) {
-	rows, err := q.db.QueryContext(ctx, listAuditLog, arg.Limit, arg.Offset)
+func (q *Queries) ListAuditLogFiltered(ctx context.Context, arg ListAuditLogFilteredParams) ([]AuditLog, error) {
+	rows, err := q.db.QueryContext(ctx, listAuditLogFiltered,
+		arg.Username,
+		arg.FromTime,
+		arg.ToTime,
+		arg.Offset,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -462,50 +474,6 @@ func (q *Queries) ListAuditLog(ctx context.Context, arg ListAuditLogParams) ([]A
 			&i.Username,
 			&i.IpAddress,
 			&i.Action,
-			&i.RecordID,
-			&i.ImpactedTable,
-			&i.OldValues,
-			&i.NewValues,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listAuditLogByUsername = `-- name: ListAuditLogByUsername :many
-SELECT id, timestamp, username, ip_address, "action", record_id, impacted_table, old_values, new_values FROM audit_log WHERE username = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?
-`
-
-type ListAuditLogByUsernameParams struct {
-	Username string `json:"username"`
-	Limit    int64  `json:"limit"`
-	Offset   int64  `json:"offset"`
-}
-
-func (q *Queries) ListAuditLogByUsername(ctx context.Context, arg ListAuditLogByUsernameParams) ([]AuditLog, error) {
-	rows, err := q.db.QueryContext(ctx, listAuditLogByUsername, arg.Username, arg.Limit, arg.Offset)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []AuditLog
-	for rows.Next() {
-		var i AuditLog
-		if err := rows.Scan(
-			&i.ID,
-			&i.Timestamp,
-			&i.Username,
-			&i.IpAddress,
-			&i.Action,
-			&i.RecordID,
 			&i.ImpactedTable,
 			&i.OldValues,
 			&i.NewValues,

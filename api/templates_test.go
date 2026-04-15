@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"notification_relay/api"
 	"notification_relay/config"
+	"notification_relay/db"
 	ldap "notification_relay/ldap"
 	"notification_relay/notify"
 	"notification_relay/testutil"
@@ -254,5 +256,136 @@ func TestTemplates_ReaderCannotWrite(t *testing.T) {
 	w = do(readerSrv, "DELETE", "/api/v1/templates/reader-tmpl", nil)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("reader DELETE template: want 403, got %d", w.Code)
+	}
+}
+
+// ---- Audit log tests ----
+
+// findAuditEntry returns the first audit entry matching action from q, or nil.
+func findAuditEntry(t *testing.T, q *db.Queries, action string, after time.Time) *db.AuditLog {
+	t.Helper()
+	entries, err := q.ListAuditLogFiltered(t.Context(), db.ListAuditLogFilteredParams{
+		Username: "user",
+		FromTime: after.UTC().Format(time.RFC3339),
+		ToTime:   "",
+		Offset:   0,
+		Limit:    50,
+	})
+	if err != nil {
+		t.Fatalf("ListAuditLogFiltered: %v", err)
+	}
+	for i := range entries {
+		if entries[i].Action == action {
+			return &entries[i]
+		}
+	}
+	return nil
+}
+
+func TestCreateTemplate_AuditLog(t *testing.T) {
+	srv, q := newAdminServerWithQ(t)
+	before := time.Now().Add(-time.Second)
+
+	body, _ := json.Marshal(map[string]any{
+		"template_name": "audit-create-tmpl",
+		"subject":       "Subject",
+		"body":          "<p>body</p>",
+	})
+	w := do(srv, "POST", "/api/v1/templates", body)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d", w.Code)
+	}
+
+	entry := findAuditEntry(t, q, "create_template", before)
+	if entry == nil {
+		t.Fatal("expected create_template audit entry, none found")
+	}
+	if !entry.NewValues.Valid {
+		t.Fatal("expected new_values to be set")
+	}
+	var snap map[string]any
+	if err := json.Unmarshal([]byte(entry.NewValues.String), &snap); err != nil {
+		t.Fatalf("new_values is not valid JSON: %v", err)
+	}
+	if snap["template_name"] != "audit-create-tmpl" {
+		t.Errorf("new_values.template_name = %v, want %q", snap["template_name"], "audit-create-tmpl")
+	}
+	if entry.OldValues.Valid {
+		t.Error("expected old_values to be NULL for create")
+	}
+}
+
+func TestUpdateTemplate_AuditLog(t *testing.T) {
+	srv, q := newAdminServerWithQ(t)
+
+	createBody, _ := json.Marshal(map[string]any{
+		"template_name": "audit-upd-tmpl",
+		"subject":       "Old Subject",
+		"body":          "<p>old</p>",
+	})
+	do(srv, "POST", "/api/v1/templates", createBody)
+
+	before := time.Now().Add(-time.Second)
+	updateBody, _ := json.Marshal(map[string]any{
+		"subject": "New Subject",
+		"body":    "<p>new</p>",
+	})
+	w := do(srv, "PUT", "/api/v1/templates/audit-upd-tmpl", updateBody)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+
+	entry := findAuditEntry(t, q, "update_template", before)
+	if entry == nil {
+		t.Fatal("expected update_template audit entry, none found")
+	}
+
+	var oldSnap, newSnap map[string]any
+	if err := json.Unmarshal([]byte(entry.OldValues.String), &oldSnap); err != nil {
+		t.Fatalf("old_values is not valid JSON: %v", err)
+	}
+	if err := json.Unmarshal([]byte(entry.NewValues.String), &newSnap); err != nil {
+		t.Fatalf("new_values is not valid JSON: %v", err)
+	}
+	if oldSnap["subject"] != "Old Subject" {
+		t.Errorf("old_values.subject = %v, want %q", oldSnap["subject"], "Old Subject")
+	}
+	if newSnap["subject"] != "New Subject" {
+		t.Errorf("new_values.subject = %v, want %q", newSnap["subject"], "New Subject")
+	}
+}
+
+func TestDeleteTemplate_AuditLog(t *testing.T) {
+	srv, q := newAdminServerWithQ(t)
+
+	createBody, _ := json.Marshal(map[string]any{
+		"template_name": "audit-del-tmpl",
+		"subject":       "Subject",
+		"body":          "<p>body</p>",
+	})
+	do(srv, "POST", "/api/v1/templates", createBody)
+
+	before := time.Now().Add(-time.Second)
+	w := do(srv, "DELETE", "/api/v1/templates/audit-del-tmpl", nil)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("want 204, got %d", w.Code)
+	}
+
+	entry := findAuditEntry(t, q, "delete_template", before)
+	if entry == nil {
+		t.Fatal("expected delete_template audit entry, none found")
+	}
+	if !entry.OldValues.Valid {
+		t.Fatal("expected old_values to be set for delete")
+	}
+	var snap map[string]any
+	if err := json.Unmarshal([]byte(entry.OldValues.String), &snap); err != nil {
+		t.Fatalf("old_values is not valid JSON: %v", err)
+	}
+	if snap["template_name"] != "audit-del-tmpl" {
+		t.Errorf("old_values.template_name = %v, want %q", snap["template_name"], "audit-del-tmpl")
+	}
+	if entry.NewValues.Valid {
+		t.Error("expected new_values to be NULL for delete")
 	}
 }

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -76,6 +77,41 @@ func (s *Server) requirePermissions(perms ...Permission) func(http.Handler) http
 	}
 }
 
+// auditLogAction writes a data-mutation audit entry for an already-authenticated
+// handler. Username and IP are extracted from the request automatically.
+// oldJSON and newJSON are JSON-serialised snapshots of the record before and after
+// the mutation; either may be empty (stored as NULL).
+func (s *Server) auditLogAction(r *http.Request, action, impactedTable, oldJSON, newJSON string) {
+	user, _ := UserFromContext(r.Context())
+	ip := clientIP(r)
+	err := s.q.InsertAuditLog(r.Context(), db.InsertAuditLogParams{
+		Timestamp:     time.Now().UTC().Format(time.RFC3339),
+		Username:      user.Username,
+		IpAddress:     sql.NullString{String: ip, Valid: ip != ""},
+		Action:        action,
+		ImpactedTable: impactedTable,
+		OldValues:     sql.NullString{String: oldJSON, Valid: oldJSON != ""},
+		NewValues:     sql.NullString{String: newJSON, Valid: newJSON != ""},
+	})
+	if err != nil {
+		s.logger.Error("failed to write audit log",
+			"action", action,
+			"table", impactedTable,
+			"error", err,
+		)
+	}
+}
+
+// marshalAuditJSON serialises v to a compact JSON string for audit log snapshots.
+// Returns "" on error — the audit entry is still written with a NULL column.
+func marshalAuditJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
 // auditLog writes a single audit entry to the database. Errors are logged but
 // do not affect the HTTP response — audit failures must not block requests.
 func (s *Server) auditLog(ctx context.Context, username, ip, action string) {
@@ -84,7 +120,6 @@ func (s *Server) auditLog(ctx context.Context, username, ip, action string) {
 		Username:      username,
 		IpAddress:     sql.NullString{String: ip, Valid: ip != ""},
 		Action:        action,
-		RecordID:      sql.NullInt64{},
 		ImpactedTable: "auth",
 		OldValues:     sql.NullString{},
 		NewValues:     sql.NullString{},

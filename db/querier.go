@@ -31,8 +31,7 @@ type Querier interface {
 	InsertGroupMember(ctx context.Context, arg InsertGroupMemberParams) error
 	// notifications
 	InsertNotification(ctx context.Context, arg InsertNotificationParams) (Notification, error)
-	ListAuditLog(ctx context.Context, arg ListAuditLogParams) ([]AuditLog, error)
-	ListAuditLogByUsername(ctx context.Context, arg ListAuditLogByUsernameParams) ([]AuditLog, error)
+	ListAuditLogFiltered(ctx context.Context, arg ListAuditLogFilteredParams) ([]AuditLog, error)
 	ListDeliveriesByNotificationID(ctx context.Context, notificationID string) ([]Delivery, error)
 	ListDistinctGroupNames(ctx context.Context) ([]string, error)
 	ListEmailTemplates(ctx context.Context) ([]EmailTemplate, error)

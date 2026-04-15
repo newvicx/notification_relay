@@ -117,6 +117,8 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.auditLogAction(r, "create_event", "events", "", marshalAuditJSON(event))
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(toEventResponse(event))
@@ -234,7 +236,9 @@ func (s *Server) handleEndEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	oldEvent := event
 	event.EndTime = sql.NullString{String: endTime, Valid: true}
+	s.auditLogAction(r, "end_event", "events", marshalAuditJSON(oldEvent), marshalAuditJSON(event))
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(toEventResponse(event))
 }

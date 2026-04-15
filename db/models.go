@@ -14,7 +14,6 @@ type AuditLog struct {
 	Username      string         `json:"username"`
 	IpAddress     sql.NullString `json:"ip_address"`
 	Action        string         `json:"action"`
-	RecordID      sql.NullInt64  `json:"record_id"`
 	ImpactedTable string         `json:"impacted_table"`
 	OldValues     sql.NullString `json:"old_values"`
 	NewValues     sql.NullString `json:"new_values"`

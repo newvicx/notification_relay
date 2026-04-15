@@ -81,6 +81,8 @@ func (s *Server) handleCreateTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.auditLogAction(r, "create_template", "email_templates", "", marshalAuditJSON(tmpl))
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(toTemplateResponse(tmpl))
@@ -142,8 +144,9 @@ func (s *Server) handleUpdateTemplate(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// Verify it exists.
-	if _, err := s.q.GetEmailTemplateByName(ctx, name); err != nil {
+	// Fetch the existing record for old-values snapshot and existence check.
+	oldTmpl, err := s.q.GetEmailTemplateByName(ctx, name)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "template not found", http.StatusNotFound)
 			return
@@ -171,13 +174,15 @@ func (s *Server) handleUpdateTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return the updated template.
+	// Re-fetch for new-values snapshot and response.
 	tmpl, err := s.q.GetEmailTemplateByName(ctx, name)
 	if err != nil {
 		s.logger.Error("update template: re-fetch failed", "name", name, "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+
+	s.auditLogAction(r, "update_template", "email_templates", marshalAuditJSON(oldTmpl), marshalAuditJSON(tmpl))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(toTemplateResponse(tmpl))
@@ -188,7 +193,8 @@ func (s *Server) handleDeleteTemplate(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("template_name")
 	ctx := r.Context()
 
-	if _, err := s.q.GetEmailTemplateByName(ctx, name); err != nil {
+	tmpl, err := s.q.GetEmailTemplateByName(ctx, name)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "template not found", http.StatusNotFound)
 			return
@@ -203,6 +209,8 @@ func (s *Server) handleDeleteTemplate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+
+	s.auditLogAction(r, "delete_template", "email_templates", marshalAuditJSON(tmpl), "")
 
 	w.WriteHeader(http.StatusNoContent)
 }

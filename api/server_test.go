@@ -382,6 +382,76 @@ func TestGetDelivery_NotFound(t *testing.T) {
 	}
 }
 
+// ---- Event audit log tests ----
+
+func TestCreateEvent_AuditLog(t *testing.T) {
+	srv, q := newAdminServerWithQ(t)
+	before := time.Now().Add(-time.Second)
+
+	body, _ := json.Marshal(map[string]any{"event_id": "EVT-AUDIT-CREATE"})
+	w := do(srv, "POST", "/api/v1/events", body)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d", w.Code)
+	}
+
+	entry := findAuditEntry(t, q, "create_event", before)
+	if entry == nil {
+		t.Fatal("expected create_event audit entry, none found")
+	}
+	if !entry.NewValues.Valid {
+		t.Fatal("expected new_values to be set")
+	}
+	var snap map[string]any
+	if err := json.Unmarshal([]byte(entry.NewValues.String), &snap); err != nil {
+		t.Fatalf("new_values is not valid JSON: %v", err)
+	}
+	if snap["event_id"] != "EVT-AUDIT-CREATE" {
+		t.Errorf("new_values.event_id = %v, want %q", snap["event_id"], "EVT-AUDIT-CREATE")
+	}
+	if entry.OldValues.Valid {
+		t.Error("expected old_values to be NULL for create")
+	}
+}
+
+func TestEndEvent_AuditLog(t *testing.T) {
+	srv, q := newAdminServerWithQ(t)
+
+	createBody, _ := json.Marshal(map[string]any{"event_id": "EVT-AUDIT-END"})
+	do(srv, "POST", "/api/v1/events", createBody)
+
+	before := time.Now().Add(-time.Second)
+	w := do(srv, "POST", "/api/v1/events/EVT-AUDIT-END/end", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+
+	entry := findAuditEntry(t, q, "end_event", before)
+	if entry == nil {
+		t.Fatal("expected end_event audit entry, none found")
+	}
+
+	var oldSnap, newSnap map[string]any
+	if err := json.Unmarshal([]byte(entry.OldValues.String), &oldSnap); err != nil {
+		t.Fatalf("old_values is not valid JSON: %v", err)
+	}
+	if err := json.Unmarshal([]byte(entry.NewValues.String), &newSnap); err != nil {
+		t.Fatalf("new_values is not valid JSON: %v", err)
+	}
+	if oldSnap["event_id"] != "EVT-AUDIT-END" {
+		t.Errorf("old_values.event_id = %v, want %q", oldSnap["event_id"], "EVT-AUDIT-END")
+	}
+	// old snapshot should have no end_time; new snapshot should have end_time set
+	oldEndTime, _ := oldSnap["end_time"].(map[string]any)
+	if oldEndTime != nil && oldEndTime["Valid"] == true {
+		t.Error("expected end_time to be unset in old_values snapshot")
+	}
+	newEndTime, _ := newSnap["end_time"].(map[string]any)
+	if newEndTime == nil || newEndTime["Valid"] != true {
+		t.Error("expected end_time to be set in new_values snapshot")
+	}
+}
+
+
 func TestListEventNotifications(t *testing.T) {
 	srv, _ := newTestServer(t, publisherAuth())
 

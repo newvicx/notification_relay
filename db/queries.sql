@@ -128,11 +128,13 @@ DELETE FROM email_templates WHERE template_name = ?;
 -- audit_log
 
 -- name: InsertAuditLog :exec
-INSERT INTO audit_log (timestamp, username, ip_address, action, record_id, impacted_table, old_values, new_values)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO audit_log (timestamp, username, ip_address, action, impacted_table, old_values, new_values)
+VALUES (?, ?, ?, ?, ?, ?, ?);
 
--- name: ListAuditLog :many
-SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT ? OFFSET ?;
-
--- name: ListAuditLogByUsername :many
-SELECT * FROM audit_log WHERE username = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?;
+-- name: ListAuditLogFiltered :many
+SELECT * FROM audit_log
+WHERE (:username = '' OR username = :username)
+  AND (:from_time = '' OR timestamp >= :from_time)
+  AND (:to_time = '' OR timestamp <= :to_time)
+ORDER BY timestamp DESC
+LIMIT :limit OFFSET :offset;

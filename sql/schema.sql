@@ -113,7 +113,6 @@ CREATE TABLE IF NOT EXISTS audit_log (
     username       TEXT NOT NULL,
     ip_address     TEXT,
     action         TEXT NOT NULL,
-    record_id      INTEGER,
     impacted_table TEXT NOT NULL,
     old_values     TEXT,
     new_values     TEXT
