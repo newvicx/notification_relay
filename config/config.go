@@ -89,11 +89,16 @@ type LDAPConfig struct {
 }
 
 type TwilioConfig struct {
-	AccountSID   string        `yaml:"account_sid"`
-	TokenSID     string        `yaml:"token_sid"`
-	AuthToken    string        `yaml:"auth_token"`
-	FromNumber   string        `yaml:"from_number"`
+	AccountSID string `yaml:"account_sid"`
+	TokenSID   string `yaml:"token_sid"`
+	AuthToken  string `yaml:"auth_token"`
+	FromNumber string `yaml:"from_number"`
+	// PollInterval controls how often the poller checks Twilio for delivery status.
 	PollInterval time.Duration `yaml:"poll_interval"`
+	// PollAttemptLimit is the maximum number of failed poll attempts before a
+	// delivery is marked as "poll_failed" and removed from the polling queue.
+	// Set to 0 to disable the limit. Default: 10.
+	PollAttemptLimit int `yaml:"poll_attempt_limit"`
 }
 
 type SMTPConfig struct {
@@ -178,7 +183,8 @@ func defaults() *Config {
 			AuthCacheTTL:  30 * time.Second,
 		},
 		Twilio: TwilioConfig{
-			PollInterval: 30 * time.Second,
+			PollInterval:     30 * time.Second,
+			PollAttemptLimit: 10,
 		},
 		SMTP: SMTPConfig{
 			TLSMode: "starttls",

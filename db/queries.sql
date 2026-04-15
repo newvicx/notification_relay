@@ -83,6 +83,14 @@ SELECT * FROM deliveries
 WHERE channel = 'sms' AND status IN ('accepted', 'scheduled', 'queued', 'sending', 'sent')
 ORDER BY sent_at;
 
+-- name: IncrementPollAttempts :one
+-- Atomically increments poll_attempts and returns the updated delivery row,
+-- allowing the caller to decide whether the attempt limit has been reached.
+UPDATE deliveries
+SET poll_attempts = poll_attempts + 1
+WHERE delivery_id = ?
+RETURNING *;
+
 -- name: UpdateDeliveryStatus :exec
 -- error_message should include the Twilio error code when applicable,
 -- e.g. "queue overflow: 30001"

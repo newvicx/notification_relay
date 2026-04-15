@@ -106,6 +106,7 @@ func (p *Poller) checkDelivery(ctx context.Context, d db.Delivery) {
 	if err != nil {
 		p.logger.Error("poller: twilio status fetch failed",
 			"delivery_id", d.DeliveryID, "channel", d.Channel, "error", err)
+		p.recordPollFailure(ctx, d, fmt.Sprintf("status fetch failed: %v", err))
 		return
 	}
 
@@ -113,6 +114,7 @@ func (p *Poller) checkDelivery(ctx context.Context, d db.Delivery) {
 	if err := json.Unmarshal(body, &r); err != nil {
 		p.logger.Error("poller: parse twilio status response failed",
 			"delivery_id", d.DeliveryID, "error", err)
+		p.recordPollFailure(ctx, d, fmt.Sprintf("parse response failed: %v", err))
 		return
 	}
 
@@ -142,6 +144,41 @@ func (p *Poller) checkDelivery(ctx context.Context, d db.Delivery) {
 
 	p.logger.Info("poller: delivery completed",
 		"delivery_id", d.DeliveryID, "channel", d.Channel, "status", mapped)
+}
+
+// recordPollFailure increments poll_attempts for the delivery. If the
+// configured PollAttemptLimit is reached the delivery is marked "poll_failed"
+// and will no longer be returned by the in-flight queries, preventing
+// unbounded queue growth when Twilio is unreachable.
+func (p *Poller) recordPollFailure(ctx context.Context, d db.Delivery, reason string) {
+	updated, err := p.q.IncrementPollAttempts(ctx, d.DeliveryID)
+	if err != nil {
+		p.logger.Error("poller: increment poll attempts failed",
+			"delivery_id", d.DeliveryID, "error", err)
+		return
+	}
+
+	limit := p.cfg.PollAttemptLimit
+	if limit <= 0 || updated.PollAttempts < int64(limit) {
+		return
+	}
+
+	if err := p.q.UpdateDeliveryStatus(ctx, db.UpdateDeliveryStatusParams{
+		Status:       "poll_failed",
+		CompletedAt:  sql.NullString{String: time.Now().UTC().Format(time.RFC3339), Valid: true},
+		ErrorMessage: sql.NullString{String: reason, Valid: true},
+		DeliveryID:   d.DeliveryID,
+	}); err != nil {
+		p.logger.Error("poller: mark delivery poll_failed failed",
+			"delivery_id", d.DeliveryID, "error", err)
+		return
+	}
+
+	p.logger.Warn("poller: delivery marked poll_failed, giving up",
+		"delivery_id", d.DeliveryID,
+		"channel", d.Channel,
+		"poll_attempts", updated.PollAttempts,
+		"reason", reason)
 }
 
 // mapTwilioStatus maps a raw Twilio status string to our internal status and
