@@ -102,7 +102,7 @@ func (p *Poller) checkDelivery(ctx context.Context, d db.Delivery) {
 		)
 	}
 
-	body, err := twilioGet(p.client, p.cfg.AccountSID, p.cfg.AuthToken, apiURL)
+	body, err := twilioGet(p.client, p.cfg.TokenSID, p.cfg.AuthToken, apiURL)
 	if err != nil {
 		p.logger.Error("poller: twilio status fetch failed",
 			"delivery_id", d.DeliveryID, "channel", d.Channel, "error", err)
