@@ -674,7 +674,9 @@ func (q *Queries) ListGroupMembers(ctx context.Context, groupName string) ([]Gro
 
 const listInFlightSMSDeliveries = `-- name: ListInFlightSMSDeliveries :many
 SELECT id, delivery_id, notification_id, "group", member, channel, status, email_template, email_vars, attempt, error_message, sent_at, completed_at, poll_attempts FROM deliveries
-WHERE channel = 'sms' AND status IN ('accepted', 'scheduled', 'queued', 'sending', 'sent')
+WHERE channel = 'sms'
+  AND status IN ('accepted', 'scheduled', 'queued', 'sending', 'sent')
+  AND status != 'poll_failed'
 ORDER BY sent_at
 `
 
@@ -721,7 +723,9 @@ func (q *Queries) ListInFlightSMSDeliveries(ctx context.Context) ([]Delivery, er
 
 const listInFlightVoiceDeliveries = `-- name: ListInFlightVoiceDeliveries :many
 SELECT id, delivery_id, notification_id, "group", member, channel, status, email_template, email_vars, attempt, error_message, sent_at, completed_at, poll_attempts FROM deliveries
-WHERE channel = 'voice' AND status IN ('queued', 'ringing', 'in-progress')
+WHERE channel = 'voice'
+  AND status IN ('queued', 'ringing', 'in-progress')
+  AND status != 'poll_failed'
 ORDER BY sent_at
 `
 
