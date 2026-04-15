@@ -1,0 +1,903 @@
+openapi: "3.0.3"
+info:
+  title: Notification Relay API
+  description: |
+    A notification delivery relay that sends alerts through Email, SMS, and Voice
+    to on-call groups, with LDAP-based membership syncing and RBAC.
+
+    ## Authentication
+
+    All endpoints require HTTP Basic Auth. Credentials are verified against LDAP.
+    The caller's roles are resolved from their LDAP group membership:
+
+    | Role        | Permissions            |
+    |-------------|------------------------|
+    | `admin`     | admin + publish + read |
+    | `publisher` | publish + read         |
+    | `reader`    | read only              |
+  version: "1.0.0"
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+security:
+  - basicAuth: []
+
+tags:
+  - name: Events
+    description: Manage discrete events (e.g. alerts)
+  - name: Notifications
+    description: Publish and inspect notifications sent for events
+  - name: Deliveries
+    description: Inspect individual delivery attempts
+  - name: Groups
+    description: Read LDAP group membership (synced periodically)
+  - name: Templates
+    description: Manage email templates used for email-channel deliveries
+  - name: Audit
+    description: Admin-only audit log of all user actions
+
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+
+  parameters:
+    limit:
+      name: limit
+      in: query
+      description: Maximum number of records to return (1–200)
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+
+    offset:
+      name: offset
+      in: query
+      description: Number of records to skip
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+
+    event_id:
+      name: event_id
+      in: path
+      required: true
+      schema:
+        type: string
+
+    notification_id:
+      name: notification_id
+      in: path
+      required: true
+      schema:
+        type: string
+
+    delivery_id:
+      name: delivery_id
+      in: path
+      required: true
+      schema:
+        type: string
+
+    group_name:
+      name: group_name
+      in: path
+      required: true
+      schema:
+        type: string
+
+    template_name:
+      name: template_name
+      in: path
+      required: true
+      schema:
+        type: string
+
+  schemas:
+    Event:
+      type: object
+      required: [id, event_id, start_time]
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Internal database ID
+        event_id:
+          type: string
+          description: External event identifier
+        event_url:
+          type: string
+          description: URL associated with the event
+        event_name:
+          type: string
+        event_description:
+          type: string
+        event_severity:
+          type: string
+        start_time:
+          type: string
+          format: date-time
+          description: Event start time (RFC3339)
+        end_time:
+          type: string
+          format: date-time
+          nullable: true
+          description: Event end time (RFC3339); null while the event is active
+      example:
+        id: 1
+        event_id: "alert-disk-high-01"
+        event_url: "https://monitoring.example.com/alerts/123"
+        event_name: "High Disk Usage"
+        event_severity: "major"
+        start_time: "2026-04-15T10:00:00Z"
+        end_time: null
+
+    Notification:
+      type: object
+      required: [id, notification_id, event_id, groups, channels, message, member_count, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        notification_id:
+          type: string
+          description: UUID v7 identifier for this notification
+        event_id:
+          type: string
+          description: The event this notification was generated for
+        groups:
+          type: array
+          items:
+            type: string
+          description: LDAP groups targeted by this notification
+        channels:
+          type: array
+          items:
+            type: string
+            enum: [sms, voice, email]
+          description: Delivery channels used
+        message:
+          type: string
+        member_count:
+          type: integer
+          format: int64
+          description: Number of group members targeted at dispatch time
+        created_at:
+          type: string
+          format: date-time
+
+    Delivery:
+      type: object
+      required: [id, delivery_id, notification_id, group, member, channel, status, attempt, sent_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        delivery_id:
+          type: string
+          description: UUID v7 identifier for this delivery attempt
+        notification_id:
+          type: string
+        group:
+          type: string
+          description: Group the member belongs to
+        member:
+          type: string
+          description: Username of the recipient
+        channel:
+          type: string
+          enum: [sms, voice, email]
+        status:
+          type: string
+          description: Current delivery status
+        email_template:
+          type: string
+          nullable: true
+          description: Email template name used (email channel only)
+        email_vars:
+          type: string
+          nullable: true
+          description: JSON-serialized template variable map (email channel only)
+        attempt:
+          type: integer
+          format: int64
+          description: Delivery attempt number (starts at 1)
+        error_message:
+          type: string
+          nullable: true
+          description: Error detail if the delivery failed
+        sent_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When delivery was confirmed complete; null if still in-flight
+
+    GroupMember:
+      type: object
+      required: [username, synced_at]
+      properties:
+        username:
+          type: string
+        display_name:
+          type: string
+        email:
+          type: string
+        mobile:
+          type: string
+          description: Mobile phone number
+        work:
+          type: string
+          description: Work phone number
+        synced_at:
+          type: string
+          format: date-time
+          description: When this member record was last synced from LDAP
+
+    Template:
+      type: object
+      required: [id, template_name, subject, body, required_vars]
+      properties:
+        id:
+          type: integer
+          format: int64
+        template_name:
+          type: string
+        subject:
+          type: string
+          description: Email subject (supports Go template syntax)
+        body:
+          type: string
+          description: Email body (supports Go template syntax)
+        required_vars:
+          type: array
+          items:
+            type: string
+          description: Variable names that must be supplied when using this template
+        description:
+          type: string
+
+    TemplateRequest:
+      type: object
+      required: [template_name, subject, body]
+      properties:
+        template_name:
+          type: string
+        subject:
+          type: string
+          description: Email subject (supports Go template syntax)
+        body:
+          type: string
+          description: Email body (supports Go template syntax)
+        required_vars:
+          type: array
+          items:
+            type: string
+          description: Variable names that must be present in subject/body
+        description:
+          type: string
+
+    AuditLogEntry:
+      type: object
+      required: [id, timestamp, username, action, impacted_table]
+      properties:
+        id:
+          type: integer
+          format: int64
+        timestamp:
+          type: string
+          format: date-time
+        username:
+          type: string
+        ip_address:
+          type: string
+          description: Client IP from X-Client-IP header; omitted if not present
+        action:
+          type: string
+          description: |
+            Action performed. Well-known values:
+            `login`, `login_failed`, `create_event`, `end_event`,
+            `create_template`, `update_template`, `delete_template`
+        impacted_table:
+          type: string
+          description: Database table affected (e.g. `events`, `email_templates`, `auth`)
+        old_values:
+          type: string
+          description: JSON snapshot of the record before the mutation; omitted for creates
+        new_values:
+          type: string
+          description: JSON snapshot of the record after the mutation; omitted for deletes
+
+    PublishResponse:
+      type: object
+      required: [notification_id, event_id, groups, channels, message]
+      properties:
+        notification_id:
+          type: string
+        event_id:
+          type: string
+        groups:
+          type: array
+          items:
+            type: string
+        channels:
+          type: array
+          items:
+            type: string
+        message:
+          type: string
+
+paths:
+  /api/v1/notifications:
+    post:
+      summary: Publish a notification
+      description: |
+        Queues a notification for async delivery to one or more on-call groups
+        via the specified channels. If the referenced `event_id` does not exist
+        it is created automatically. Returns `202 Accepted` once the job is
+        enqueued.
+
+        When `email` is included in `channels`, `email_template` is required.
+      operationId: publishNotification
+      tags: [Notifications]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event_id, groups, channels, message]
+              properties:
+                event_id:
+                  type: string
+                  description: External event identifier; event is created if it does not exist
+                event_url:
+                  type: string
+                event_name:
+                  type: string
+                event_description:
+                  type: string
+                event_severity:
+                  type: string
+                start_time:
+                  type: string
+                  format: date-time
+                  description: Used when auto-creating the event; defaults to now
+                groups:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+                  description: LDAP group names to notify
+                channels:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+                    enum: [sms, voice, email]
+                message:
+                  type: string
+                email_template:
+                  type: string
+                  description: Required when `email` is in channels
+                email_vars:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: Template variable substitutions for email delivery
+            example:
+              event_id: "alert-disk-high-01"
+              event_name: "High Disk Usage"
+              event_severity: "major"
+              groups: ["grp-oncall"]
+              channels: ["sms", "email"]
+              message: "Disk usage above 90% on web-01"
+              email_template: "alert-standard"
+              email_vars:
+                host: "web-01"
+                threshold: "90%"
+      responses:
+        "202":
+          description: Notification accepted and enqueued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishResponse"
+        "400":
+          description: Missing required fields or unknown channel value
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires publisher role
+        "500":
+          description: Internal server error
+        "503":
+          description: Job queue full; retry later
+
+  /api/v1/events:
+    post:
+      summary: Create an event
+      description: Creates a new event record. Returns `409 Conflict` if an event with the same `event_id` already exists.
+      operationId: createEvent
+      tags: [Events]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event_id]
+              properties:
+                event_id:
+                  type: string
+                event_url:
+                  type: string
+                event_name:
+                  type: string
+                event_description:
+                  type: string
+                event_severity:
+                  type: string
+                start_time:
+                  type: string
+                  format: date-time
+                  description: Defaults to current time if omitted
+      responses:
+        "201":
+          description: Event created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "400":
+          description: Missing required fields or invalid JSON
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires publisher role
+        "409":
+          description: An event with this event_id already exists
+        "500":
+          description: Internal server error
+
+    get:
+      summary: List events
+      description: Returns a paginated list of events ordered by `start_time` descending.
+      operationId: listEvents
+      tags: [Events]
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated event list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events, limit, offset]
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Event"
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        "400":
+          description: Invalid query parameters
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires reader role
+        "500":
+          description: Internal server error
+
+  /api/v1/events/{event_id}:
+    parameters:
+      - $ref: "#/components/parameters/event_id"
+
+    get:
+      summary: Get an event
+      operationId: getEvent
+      tags: [Events]
+      responses:
+        "200":
+          description: Event found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires reader role
+        "404":
+          description: Event not found
+        "500":
+          description: Internal server error
+
+  /api/v1/events/{event_id}/end:
+    parameters:
+      - $ref: "#/components/parameters/event_id"
+
+    post:
+      summary: End an event
+      description: |
+        Sets `end_time` on an event to mark it as resolved.
+        Idempotent — if `end_time` is already set the existing event is returned
+        unchanged with `200 OK`.
+      operationId: endEvent
+      tags: [Events]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                end_time:
+                  type: string
+                  format: date-time
+                  description: End time (RFC3339); defaults to now if omitted
+      responses:
+        "200":
+          description: Event ended (or already ended)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "400":
+          description: Invalid JSON body
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires publisher role
+        "404":
+          description: Event not found
+        "500":
+          description: Internal server error
+
+  /api/v1/events/{event_id}/notifications:
+    parameters:
+      - $ref: "#/components/parameters/event_id"
+
+    get:
+      summary: List notifications for an event
+      operationId: listEventNotifications
+      tags: [Events, Notifications]
+      responses:
+        "200":
+          description: All notifications generated for the event
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Notification"
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires reader role
+        "404":
+          description: Event not found
+        "500":
+          description: Internal server error
+
+  /api/v1/notifications/{notification_id}:
+    parameters:
+      - $ref: "#/components/parameters/notification_id"
+
+    get:
+      summary: Get a notification
+      operationId: getNotification
+      tags: [Notifications]
+      responses:
+        "200":
+          description: Notification found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Notification"
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires reader role
+        "404":
+          description: Notification not found
+        "500":
+          description: Internal server error
+
+  /api/v1/notifications/{notification_id}/deliveries:
+    parameters:
+      - $ref: "#/components/parameters/notification_id"
+
+    get:
+      summary: List deliveries for a notification
+      operationId: listNotificationDeliveries
+      tags: [Notifications, Deliveries]
+      responses:
+        "200":
+          description: All delivery attempts for the notification
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Delivery"
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires reader role
+        "404":
+          description: Notification not found
+        "500":
+          description: Internal server error
+
+  /api/v1/deliveries/{delivery_id}:
+    parameters:
+      - $ref: "#/components/parameters/delivery_id"
+
+    get:
+      summary: Get a delivery
+      operationId: getDelivery
+      tags: [Deliveries]
+      responses:
+        "200":
+          description: Delivery found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Delivery"
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires reader role
+        "404":
+          description: Delivery not found
+        "500":
+          description: Internal server error
+
+  /api/v1/groups:
+    get:
+      summary: List LDAP groups
+      description: Returns all distinct group names that have been synced from LDAP.
+      operationId: listGroups
+      tags: [Groups]
+      responses:
+        "200":
+          description: List of synced group names
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+              example: ["grp-oncall", "grp-admins", "grp-monitoring"]
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires reader role
+        "500":
+          description: Internal server error
+
+  /api/v1/groups/{group_name}/members:
+    parameters:
+      - $ref: "#/components/parameters/group_name"
+
+    get:
+      summary: List members of a group
+      operationId: listGroupMembers
+      tags: [Groups]
+      responses:
+        "200":
+          description: Members of the group
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GroupMember"
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires reader role
+        "404":
+          description: Group not found (no members have been synced for this group)
+        "500":
+          description: Internal server error
+
+  /api/v1/audit:
+    get:
+      summary: List audit log entries
+      description: |
+        Returns a paginated, optionally filtered view of the audit log.
+        Requires admin role.
+      operationId: listAuditLog
+      tags: [Audit]
+      parameters:
+        - name: username
+          in: query
+          description: Filter to entries for a specific user
+          required: false
+          schema:
+            type: string
+        - name: from
+          in: query
+          description: Lower bound on timestamp (RFC3339, inclusive)
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: Upper bound on timestamp (RFC3339, inclusive)
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated audit log
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entries, limit, offset]
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AuditLogEntry"
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        "400":
+          description: Invalid query parameters
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires admin role
+        "500":
+          description: Internal server error
+
+  /api/v1/templates:
+    post:
+      summary: Create an email template
+      description: Registers a new email template. Returns `409 Conflict` if the name is already taken. The template syntax (Go `text/template`) is validated before saving.
+      operationId: createTemplate
+      tags: [Templates]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TemplateRequest"
+            example:
+              template_name: "alert-standard"
+              subject: "Alert: {{.event_name}}"
+              body: "Host {{.host}} has exceeded the {{.threshold}} threshold."
+              required_vars: ["event_name", "host", "threshold"]
+              description: "Standard alert notification template"
+      responses:
+        "201":
+          description: Template created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Template"
+        "400":
+          description: Invalid JSON body
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires admin role
+        "409":
+          description: A template with this name already exists
+        "422":
+          description: Validation failed (invalid Go template syntax or required_vars not referenced in subject/body)
+        "500":
+          description: Internal server error
+
+    get:
+      summary: List email templates
+      operationId: listTemplates
+      tags: [Templates]
+      responses:
+        "200":
+          description: All registered email templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Template"
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires reader role
+        "500":
+          description: Internal server error
+
+  /api/v1/templates/{template_name}:
+    parameters:
+      - $ref: "#/components/parameters/template_name"
+
+    get:
+      summary: Get an email template
+      operationId: getTemplate
+      tags: [Templates]
+      responses:
+        "200":
+          description: Template found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Template"
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires reader role
+        "404":
+          description: Template not found
+        "500":
+          description: Internal server error
+
+    put:
+      summary: Update an email template
+      description: Replaces the subject, body, required_vars, and description of an existing template. The template syntax is re-validated before saving.
+      operationId: updateTemplate
+      tags: [Templates]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TemplateRequest"
+      responses:
+        "200":
+          description: Template updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Template"
+        "400":
+          description: Invalid JSON body
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires admin role
+        "404":
+          description: Template not found
+        "422":
+          description: Validation failed (invalid Go template syntax or required_vars not referenced in subject/body)
+        "500":
+          description: Internal server error
+
+    delete:
+      summary: Delete an email template
+      operationId: deleteTemplate
+      tags: [Templates]
+      responses:
+        "204":
+          description: Template deleted
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires admin role
+        "404":
+          description: Template not found
+        "500":
+          description: Internal server error
