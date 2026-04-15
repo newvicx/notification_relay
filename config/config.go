@@ -115,10 +115,14 @@ type SMTPConfig struct {
 }
 
 type NotifyConfig struct {
-	WorkerCount     int           `yaml:"worker_count"`
-	RetryLimit      int           `yaml:"retry_limit"`
-	RetryDelay      time.Duration `yaml:"retry_delay"`
-	DeliveryTimeout time.Duration `yaml:"delivery_timeout"`
+	WorkerCount          int           `yaml:"worker_count"`
+	RetryLimit           int           `yaml:"retry_limit"`
+	RetryDelay           time.Duration `yaml:"retry_delay"`
+	DeliveryTimeout      time.Duration `yaml:"delivery_timeout"`
+	// DeliveryConcurrency caps the number of in-flight per-channel delivery
+	// goroutines across all workers. Prevents unbounded goroutine growth when
+	// large groups are targeted or retries pile up. Default: 16.
+	DeliveryConcurrency  int           `yaml:"delivery_concurrency"`
 }
 
 type LoggingConfig struct {
@@ -190,10 +194,11 @@ func defaults() *Config {
 			TLSMode: "starttls",
 		},
 		Notify: NotifyConfig{
-			WorkerCount:     4,
-			RetryLimit:      3,
-			RetryDelay:      60 * time.Second,
-			DeliveryTimeout: 30 * time.Second,
+			WorkerCount:         4,
+			RetryLimit:          3,
+			RetryDelay:          60 * time.Second,
+			DeliveryTimeout:     30 * time.Second,
+			DeliveryConcurrency: 16,
 		},
 		Logging: LoggingConfig{
 			Level:  "info",

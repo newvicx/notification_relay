@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -66,11 +68,22 @@ func noopLogger() *slog.Logger {
 
 func defaultCfg() config.NotifyConfig {
 	return config.NotifyConfig{
-		WorkerCount:     1,
-		RetryLimit:      1,
-		RetryDelay:      0,
-		DeliveryTimeout: 5 * time.Second,
+		WorkerCount:         1,
+		RetryLimit:          1,
+		RetryDelay:          0,
+		DeliveryTimeout:     5 * time.Second,
+		DeliveryConcurrency: 4,
 	}
+}
+
+// funcSMS is an SMSProvider backed by an arbitrary function, useful for
+// injecting custom behaviour (e.g. tracking concurrency) in tests.
+type funcSMS struct {
+	sendFn func(to, message string) (string, string, error)
+}
+
+func (f *funcSMS) Send(to, message string) (string, string, error) {
+	return f.sendFn(to, message)
 }
 
 func insertNotification(t *testing.T, q *db.Queries, eventID string, groups, channels []string, message string) db.Notification {
@@ -163,8 +176,8 @@ func TestDispatcher_SMS(t *testing.T) {
 func TestDispatcher_Voice(t *testing.T) {
 	_, q := testutil.OpenDB(t)
 	notif := insertNotification(t, q, "EVT-VOICE", []string{"grp-b"}, []string{"voice"}, "alert")
-	insertMember(t, q, "grp-b", "alice", "", "+15550001111") // has work, no mobile
-	insertMember(t, q, "grp-b", "bob", "+15552222222", "")   // has mobile, no work
+	insertMember(t, q, "grp-b", "alice", "", "+15550001111") // work only — call work number
+	insertMember(t, q, "grp-b", "bob", "+15552222222", "")   // mobile only — call mobile number
 
 	voice := &stubVoice{sid: "CA001", status: "queued"}
 	d := NewDispatcher(defaultCfg(), q, make(chan Job, 1), nil, voice, nil, noopLogger())
@@ -173,11 +186,19 @@ func TestDispatcher_Voice(t *testing.T) {
 
 	voice.mu.Lock()
 	defer voice.mu.Unlock()
-	if len(voice.calls) != 1 {
-		t.Fatalf("want 1 voice call (only alice has work number), got %d", len(voice.calls))
+	// Both members qualify: alice via work, bob via mobile.
+	if len(voice.calls) != 2 {
+		t.Fatalf("want 2 voice calls, got %d", len(voice.calls))
 	}
-	if voice.calls[0].to != "+15550001111" {
-		t.Errorf("want alice's work number, got %q", voice.calls[0].to)
+	called := make(map[string]bool, 2)
+	for _, c := range voice.calls {
+		called[c.to] = true
+	}
+	if !called["+15550001111"] {
+		t.Errorf("want alice's work number +15550001111 to be called")
+	}
+	if !called["+15552222222"] {
+		t.Errorf("want bob's mobile number +15552222222 to be called")
 	}
 }
 
@@ -268,4 +289,58 @@ func TestDispatcher_MultipleGroups_MemberCount(t *testing.T) {
 		t.Errorf("want 2 SMS calls, got %d", len(sms.calls))
 	}
 	sms.mu.Unlock()
+}
+
+// TestDispatcher_DeliveryConcurrencyBound verifies that the dispatcher never
+// exceeds DeliveryConcurrency simultaneous in-flight channel sends even when
+// many members are targeted at once.
+func TestDispatcher_DeliveryConcurrencyBound(t *testing.T) {
+	_, q := testutil.OpenDB(t)
+
+	const (
+		memberCount = 10
+		bound       = 3
+	)
+
+	notif := insertNotification(t, q, "EVT-BOUND", []string{"grp-bound"}, []string{"sms"}, "alert")
+	for i := range memberCount {
+		insertMember(t, q, "grp-bound", fmt.Sprintf("user%d", i), fmt.Sprintf("+1555%07d", i), "")
+	}
+
+	var (
+		active   atomic.Int32
+		exceeded atomic.Bool
+	)
+
+	sms := &funcSMS{
+		sendFn: func(to, message string) (string, string, error) {
+			n := active.Add(1)
+			defer active.Add(-1)
+			if int(n) > bound {
+				exceeded.Store(true)
+			}
+			// Hold the slot briefly so goroutines overlap.
+			time.Sleep(5 * time.Millisecond)
+			return "SM-bound", "queued", nil
+		},
+	}
+
+	cfg := config.NotifyConfig{
+		WorkerCount:         1,
+		RetryLimit:          1,
+		RetryDelay:          0,
+		DeliveryTimeout:     5 * time.Second,
+		DeliveryConcurrency: bound,
+	}
+	d := NewDispatcher(cfg, q, make(chan Job, 1), sms, nil, nil, noopLogger())
+	d.processJob(context.Background(), Job{NotificationID: notif.NotificationID})
+
+	if exceeded.Load() {
+		t.Errorf("concurrency bound of %d was exceeded", bound)
+	}
+
+	deliveries, _ := q.ListDeliveriesByNotificationID(context.Background(), notif.NotificationID)
+	if len(deliveries) != memberCount {
+		t.Errorf("want %d delivery rows, got %d", memberCount, len(deliveries))
+	}
 }
