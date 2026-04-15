@@ -1,0 +1,407 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"os"
+	"strings"
+	"text/tabwriter"
+)
+
+// ── API response types ────────────────────────────────────────────────────────
+
+type Event struct {
+	ID               int64   `json:"id"`
+	EventID          string  `json:"event_id"`
+	EventURL         string  `json:"event_url"`
+	EventName        string  `json:"event_name"`
+	EventDescription string  `json:"event_description"`
+	EventSeverity    string  `json:"event_severity"`
+	StartTime        string  `json:"start_time"`
+	EndTime          *string `json:"end_time"`
+}
+
+type Notification struct {
+	ID             int64    `json:"id"`
+	NotificationID string   `json:"notification_id"`
+	EventID        string   `json:"event_id"`
+	Groups         []string `json:"groups"`
+	Channels       []string `json:"channels"`
+	Message        string   `json:"message"`
+	MemberCount    int64    `json:"member_count"`
+	CreatedAt      string   `json:"created_at"`
+}
+
+type Delivery struct {
+	ID             int64   `json:"id"`
+	DeliveryID     string  `json:"delivery_id"`
+	NotificationID string  `json:"notification_id"`
+	Group          string  `json:"group"`
+	Member         string  `json:"member"`
+	Channel        string  `json:"channel"`
+	Status         string  `json:"status"`
+	EmailTemplate  *string `json:"email_template"`
+	EmailVars      *string `json:"email_vars"`
+	Attempt        int64   `json:"attempt"`
+	ErrorMessage   *string `json:"error_message"`
+	SentAt         string  `json:"sent_at"`
+	CompletedAt    *string `json:"completed_at"`
+}
+
+type GroupMember struct {
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	Email       string `json:"email"`
+	Mobile      string `json:"mobile"`
+	Work        string `json:"work"`
+	SyncedAt    string `json:"synced_at"`
+}
+
+type Template struct {
+	ID           int64    `json:"id"`
+	TemplateName string   `json:"template_name"`
+	Subject      string   `json:"subject"`
+	Body         string   `json:"body"`
+	RequiredVars []string `json:"required_vars"`
+	Description  string   `json:"description"`
+}
+
+type AuditLogEntry struct {
+	ID            int64  `json:"id"`
+	Timestamp     string `json:"timestamp"`
+	Username      string `json:"username"`
+	IPAddress     string `json:"ip_address"`
+	Action        string `json:"action"`
+	ImpactedTable string `json:"impacted_table"`
+	OldValues     string `json:"old_values"`
+	NewValues     string `json:"new_values"`
+}
+
+type PublishResponse struct {
+	NotificationID string   `json:"notification_id"`
+	EventID        string   `json:"event_id"`
+	Groups         []string `json:"groups"`
+	Channels       []string `json:"channels"`
+	Message        string   `json:"message"`
+}
+
+// ── Flag helpers ──────────────────────────────────────────────────────────────
+
+// stringSlice is a flag.Value that can be specified multiple times.
+type stringSlice []string
+
+func (s *stringSlice) String() string { return strings.Join(*s, ",") }
+func (s *stringSlice) Set(v string) error {
+	*s = append(*s, v)
+	return nil
+}
+
+// kvMap is a flag.Value for repeated --key=VALUE pairs.
+type kvMap map[string]string
+
+func (m *kvMap) String() string {
+	if *m == nil {
+		return ""
+	}
+	parts := make([]string, 0, len(*m))
+	for k, v := range *m {
+		parts = append(parts, k+"="+v)
+	}
+	return strings.Join(parts, ",")
+}
+func (m *kvMap) Set(v string) error {
+	if *m == nil {
+		*m = make(kvMap)
+	}
+	idx := strings.IndexByte(v, '=')
+	if idx < 0 {
+		return fmt.Errorf("expected KEY=VALUE, got %q", v)
+	}
+	(*m)[v[:idx]] = v[idx+1:]
+	return nil
+}
+
+// newFlagSet creates a FlagSet that exits cleanly on --help.
+func newFlagSet(name string) *flag.FlagSet {
+	return flag.NewFlagSet(name, flag.ContinueOnError)
+}
+
+// parseFlags parses args into fs, exiting on error or --help.
+func parseFlags(fs *flag.FlagSet, args []string) {
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			os.Exit(0)
+		}
+		os.Exit(2)
+	}
+}
+
+// ── Error helpers ─────────────────────────────────────────────────────────────
+
+func die(err error) {
+	fmt.Fprintln(os.Stderr, "error:", err)
+	os.Exit(1)
+}
+
+func dief(format string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, "error: "+format+"\n", args...)
+	os.Exit(1)
+}
+
+// ── String helpers ────────────────────────────────────────────────────────────
+
+func strOrDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
+}
+
+func ptrOrDash(s *string) string {
+	if s == nil || *s == "" {
+		return "-"
+	}
+	return *s
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-1] + "…"
+}
+
+// shortTime formats an RFC3339 timestamp as "YYYY-MM-DD HH:MM:SS".
+func shortTime(s string) string {
+	if s == "" {
+		return "-"
+	}
+	if len(s) >= 19 {
+		return strings.ReplaceAll(s[:19], "T", " ")
+	}
+	return s
+}
+
+// ── JSON output ───────────────────────────────────────────────────────────────
+
+func printJSON(data []byte) {
+	var buf bytes.Buffer
+	if err := json.Indent(&buf, data, "", "  "); err != nil {
+		fmt.Println(string(data))
+		return
+	}
+	fmt.Println(buf.String())
+}
+
+// ── Table helpers ─────────────────────────────────────────────────────────────
+
+func newTabWriter() *tabwriter.Writer {
+	return tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+}
+
+// ── Events ────────────────────────────────────────────────────────────────────
+
+func printEventList(events []Event) {
+	if len(events) == 0 {
+		fmt.Println("No events found.")
+		return
+	}
+	w := newTabWriter()
+	fmt.Fprintln(w, "EVENT ID\tSEVERITY\tNAME\tSTART TIME\tEND TIME")
+	for _, e := range events {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+			e.EventID,
+			strOrDash(e.EventSeverity),
+			strOrDash(truncate(e.EventName, 40)),
+			shortTime(e.StartTime),
+			ptrOrDash(e.EndTime),
+		)
+	}
+	w.Flush()
+}
+
+func printEventDetail(e Event) {
+	w := newTabWriter()
+	fmt.Fprintf(w, "ID:\t%d\n", e.ID)
+	fmt.Fprintf(w, "Event ID:\t%s\n", e.EventID)
+	fmt.Fprintf(w, "Name:\t%s\n", strOrDash(e.EventName))
+	fmt.Fprintf(w, "Severity:\t%s\n", strOrDash(e.EventSeverity))
+	fmt.Fprintf(w, "URL:\t%s\n", strOrDash(e.EventURL))
+	fmt.Fprintf(w, "Description:\t%s\n", strOrDash(e.EventDescription))
+	fmt.Fprintf(w, "Start Time:\t%s\n", e.StartTime)
+	fmt.Fprintf(w, "End Time:\t%s\n", ptrOrDash(e.EndTime))
+	w.Flush()
+}
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+
+func printNotificationList(notifs []Notification) {
+	if len(notifs) == 0 {
+		fmt.Println("No notifications found.")
+		return
+	}
+	w := newTabWriter()
+	fmt.Fprintln(w, "NOTIFICATION ID\tEVENT ID\tGROUPS\tCHANNELS\tMEMBERS\tCREATED AT")
+	for _, n := range notifs {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\n",
+			n.NotificationID,
+			n.EventID,
+			strings.Join(n.Groups, ","),
+			strings.Join(n.Channels, ","),
+			n.MemberCount,
+			shortTime(n.CreatedAt),
+		)
+	}
+	w.Flush()
+}
+
+func printNotificationDetail(n Notification) {
+	w := newTabWriter()
+	fmt.Fprintf(w, "ID:\t%d\n", n.ID)
+	fmt.Fprintf(w, "Notification ID:\t%s\n", n.NotificationID)
+	fmt.Fprintf(w, "Event ID:\t%s\n", n.EventID)
+	fmt.Fprintf(w, "Groups:\t%s\n", strings.Join(n.Groups, ", "))
+	fmt.Fprintf(w, "Channels:\t%s\n", strings.Join(n.Channels, ", "))
+	fmt.Fprintf(w, "Message:\t%s\n", n.Message)
+	fmt.Fprintf(w, "Member Count:\t%d\n", n.MemberCount)
+	fmt.Fprintf(w, "Created At:\t%s\n", n.CreatedAt)
+	w.Flush()
+}
+
+func printPublishResponse(r PublishResponse) {
+	w := newTabWriter()
+	fmt.Fprintf(w, "Notification ID:\t%s\n", r.NotificationID)
+	fmt.Fprintf(w, "Event ID:\t%s\n", r.EventID)
+	fmt.Fprintf(w, "Groups:\t%s\n", strings.Join(r.Groups, ", "))
+	fmt.Fprintf(w, "Channels:\t%s\n", strings.Join(r.Channels, ", "))
+	fmt.Fprintf(w, "Message:\t%s\n", r.Message)
+	w.Flush()
+}
+
+// ── Deliveries ────────────────────────────────────────────────────────────────
+
+func printDeliveryList(deliveries []Delivery) {
+	if len(deliveries) == 0 {
+		fmt.Println("No deliveries found.")
+		return
+	}
+	w := newTabWriter()
+	fmt.Fprintln(w, "DELIVERY ID\tMEMBER\tCHANNEL\tSTATUS\tATTEMPT\tSENT AT\tERROR")
+	for _, d := range deliveries {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
+			d.DeliveryID,
+			d.Member,
+			d.Channel,
+			d.Status,
+			d.Attempt,
+			shortTime(d.SentAt),
+			ptrOrDash(d.ErrorMessage),
+		)
+	}
+	w.Flush()
+}
+
+func printDeliveryDetail(d Delivery) {
+	w := newTabWriter()
+	fmt.Fprintf(w, "ID:\t%d\n", d.ID)
+	fmt.Fprintf(w, "Delivery ID:\t%s\n", d.DeliveryID)
+	fmt.Fprintf(w, "Notification ID:\t%s\n", d.NotificationID)
+	fmt.Fprintf(w, "Group:\t%s\n", d.Group)
+	fmt.Fprintf(w, "Member:\t%s\n", d.Member)
+	fmt.Fprintf(w, "Channel:\t%s\n", d.Channel)
+	fmt.Fprintf(w, "Status:\t%s\n", d.Status)
+	fmt.Fprintf(w, "Attempt:\t%d\n", d.Attempt)
+	fmt.Fprintf(w, "Email Template:\t%s\n", ptrOrDash(d.EmailTemplate))
+	fmt.Fprintf(w, "Email Vars:\t%s\n", ptrOrDash(d.EmailVars))
+	fmt.Fprintf(w, "Error:\t%s\n", ptrOrDash(d.ErrorMessage))
+	fmt.Fprintf(w, "Sent At:\t%s\n", d.SentAt)
+	fmt.Fprintf(w, "Completed At:\t%s\n", ptrOrDash(d.CompletedAt))
+	w.Flush()
+}
+
+// ── Groups ────────────────────────────────────────────────────────────────────
+
+func printGroupList(groups []string) {
+	if len(groups) == 0 {
+		fmt.Println("No groups found.")
+		return
+	}
+	for _, g := range groups {
+		fmt.Println(g)
+	}
+}
+
+func printGroupMemberList(members []GroupMember) {
+	if len(members) == 0 {
+		fmt.Println("No members found.")
+		return
+	}
+	w := newTabWriter()
+	fmt.Fprintln(w, "USERNAME\tDISPLAY NAME\tEMAIL\tMOBILE\tSYNCED AT")
+	for _, m := range members {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+			m.Username,
+			strOrDash(m.DisplayName),
+			strOrDash(m.Email),
+			strOrDash(m.Mobile),
+			shortTime(m.SyncedAt),
+		)
+	}
+	w.Flush()
+}
+
+// ── Templates ─────────────────────────────────────────────────────────────────
+
+func printTemplateList(templates []Template) {
+	if len(templates) == 0 {
+		fmt.Println("No templates found.")
+		return
+	}
+	w := newTabWriter()
+	fmt.Fprintln(w, "NAME\tSUBJECT\tREQUIRED VARS\tDESCRIPTION")
+	for _, t := range templates {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+			t.TemplateName,
+			truncate(t.Subject, 50),
+			strings.Join(t.RequiredVars, ","),
+			strOrDash(truncate(t.Description, 40)),
+		)
+	}
+	w.Flush()
+}
+
+func printTemplateDetail(t Template) {
+	w := newTabWriter()
+	fmt.Fprintf(w, "ID:\t%d\n", t.ID)
+	fmt.Fprintf(w, "Name:\t%s\n", t.TemplateName)
+	fmt.Fprintf(w, "Subject:\t%s\n", t.Subject)
+	fmt.Fprintf(w, "Required Vars:\t%s\n", strings.Join(t.RequiredVars, ", "))
+	fmt.Fprintf(w, "Description:\t%s\n", strOrDash(t.Description))
+	w.Flush()
+	fmt.Println()
+	fmt.Println("--- Body ---")
+	fmt.Println(t.Body)
+}
+
+// ── Audit log ─────────────────────────────────────────────────────────────────
+
+func printAuditLogList(entries []AuditLogEntry) {
+	if len(entries) == 0 {
+		fmt.Println("No audit log entries found.")
+		return
+	}
+	w := newTabWriter()
+	fmt.Fprintln(w, "TIMESTAMP\tUSERNAME\tACTION\tTABLE\tIP")
+	for _, e := range entries {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+			shortTime(e.Timestamp),
+			e.Username,
+			e.Action,
+			e.ImpactedTable,
+			strOrDash(e.IPAddress),
+		)
+	}
+	w.Flush()
+}
