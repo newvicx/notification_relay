@@ -8,8 +8,9 @@ import (
 
 // ValidateTemplate parses subject and body as html/template sources and
 // verifies that every name in requiredVars is referenced in at least one of
-// them. Returns a descriptive error if parsing fails or a required variable
-// is absent from both subject and body.
+// them. A required var "foo" matches {{.foo}}, {{.foo.bar}}, {{.foo | pipe}},
+// etc. Returns a descriptive error if parsing fails or a required variable is
+// absent from both subject and body.
 func ValidateTemplate(subject, body string, requiredVars []string) error {
 	if _, err := template.New("body").Parse(body); err != nil {
 		return fmt.Errorf("invalid body template: %w", err)
@@ -18,8 +19,7 @@ func ValidateTemplate(subject, body string, requiredVars []string) error {
 		return fmt.Errorf("invalid subject template: %w", err)
 	}
 	for _, v := range requiredVars {
-		ref := "{{." + v + "}}"
-		if !strings.Contains(body, ref) && !strings.Contains(subject, ref) {
+		if !containsFieldRef(body, v) && !containsFieldRef(subject, v) {
 			return fmt.Errorf("required variable %q not referenced in subject or body", v)
 		}
 	}
@@ -27,9 +27,12 @@ func ValidateTemplate(subject, body string, requiredVars []string) error {
 }
 
 // RenderTemplate executes subject and body as html/template sources with vars
-// as the data object. Template variables are accessed as {{.key}}.
+// as the data object. vars may be any JSON-compatible value: a flat
+// map[string]any, a nested map, a struct, etc. Template variables are accessed
+// as {{.key}} for top-level fields and {{.key.subkey}} for nested fields.
+// Missing keys cause a render error (missingkey=error).
 // Returns the rendered subject and body strings.
-func RenderTemplate(subject, body string, vars map[string]string) (string, string, error) {
+func RenderTemplate(subject, body string, vars map[string]any) (string, string, error) {
 	renderedSubject, err := renderOne("subject", subject, vars)
 	if err != nil {
 		return "", "", fmt.Errorf("render subject: %w", err)
@@ -41,8 +44,8 @@ func RenderTemplate(subject, body string, vars map[string]string) (string, strin
 	return renderedSubject, renderedBody, nil
 }
 
-func renderOne(name, src string, vars map[string]string) (string, error) {
-	tmpl, err := template.New(name).Parse(src)
+func renderOne(name, src string, vars map[string]any) (string, error) {
+	tmpl, err := template.New(name).Option("missingkey=error").Parse(src)
 	if err != nil {
 		return "", err
 	}
@@ -51,4 +54,26 @@ func renderOne(name, src string, vars map[string]string) (string, error) {
 		return "", err
 	}
 	return buf.String(), nil
+}
+
+// containsFieldRef reports whether varName appears as a template field
+// reference in src. It matches {{.varName}}, {{.varName.sub}}, {{.varName | f}},
+// etc., but not a name that merely has varName as a prefix (e.g. {{.varNameExtra}}).
+func containsFieldRef(src, varName string) bool {
+	needle := "{{." + varName
+	s := src
+	for {
+		i := strings.Index(s, needle)
+		if i == -1 {
+			return false
+		}
+		rest := s[i+len(needle):]
+		if len(rest) > 0 {
+			switch rest[0] {
+			case '}', '.', ' ', '\t', '|', ')':
+				return true
+			}
+		}
+		s = s[i+1:]
+	}
 }

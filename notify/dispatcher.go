@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -323,14 +324,26 @@ func (d *Dispatcher) dispatchEmail(ctx context.Context, notif db.Notification, g
 		return
 	}
 
-	// Parse vars from notification.
-	vars := make(map[string]string)
+	// Parse user-supplied vars from the notification.
+	userVars := make(map[string]any)
 	if notif.EmailVars.Valid && notif.EmailVars.String != "" {
-		if err := json.Unmarshal([]byte(notif.EmailVars.String), &vars); err != nil {
+		if err := json.Unmarshal([]byte(notif.EmailVars.String), &userVars); err != nil {
 			recordFailed("invalid email_vars JSON")
 			return
 		}
 	}
+
+	// Load the associated event so context vars can be injected.
+	event, err := d.q.GetEventByEventID(ctx, notif.EventID)
+	if err != nil {
+		d.logger.Error("dispatcher: load event failed",
+			"notification_id", notif.NotificationID, "event_id", notif.EventID, "error", err)
+		recordFailed(fmt.Sprintf("failed to load event: %s", notif.EventID))
+		return
+	}
+
+	// Merge user vars with notification/event context.
+	vars := mergeEmailVars(userVars, notif, event)
 
 	// Validate all required vars are present.
 	var requiredVars []string
@@ -339,7 +352,7 @@ func (d *Dispatcher) dispatchEmail(ctx context.Context, notif db.Notification, g
 		return
 	}
 	for _, v := range requiredVars {
-		if _, ok := vars[v]; !ok {
+		if !walkPath(vars, v) {
 			recordFailed(fmt.Sprintf("missing required template variable: %s", v))
 			return
 		}
@@ -396,4 +409,59 @@ func errorString(err error) string {
 		return ""
 	}
 	return fmt.Sprintf("%v", err)
+}
+
+// mergeEmailVars builds the final template data map. User-supplied vars from
+// the notification's email_vars field occupy the top level. The reserved keys
+// "notification" and "event" are always set from the real dispatch context —
+// they overwrite any identically-named keys in the user vars.
+//
+// Templates can reference context fields directly, e.g.:
+//
+//	{{.notification.message}}  {{.event.severity}}  {{.event.name}}
+func mergeEmailVars(userVars map[string]any, notif db.Notification, event db.Event) map[string]any {
+	merged := make(map[string]any, len(userVars)+2)
+	for k, v := range userVars {
+		merged[k] = v
+	}
+
+	var groups []string
+	json.Unmarshal([]byte(notif.Groups), &groups) // already validated upstream
+
+	merged["notification"] = map[string]any{
+		"id":         notif.NotificationID,
+		"message":    notif.Message,
+		"created_at": notif.CreatedAt,
+		"groups":     groups,
+	}
+	merged["event"] = map[string]any{
+		"id":          event.EventID,
+		"url":         event.EventUrl.String,
+		"name":        event.EventName.String,
+		"description": event.EventDescription.String,
+		"severity":    event.EventSeverity.String,
+		"start_time":  event.StartTime,
+		"end_time":    event.EndTime.String,
+	}
+	return merged
+}
+
+// walkPath checks whether the dotted path (e.g. "server.host") exists and is
+// non-nil in vars. Each dot-separated segment indexes one level of a
+// map[string]any. A plain name with no dots checks a top-level key.
+func walkPath(vars map[string]any, path string) bool {
+	dot := strings.IndexByte(path, '.')
+	if dot == -1 {
+		_, ok := vars[path]
+		return ok
+	}
+	val, ok := vars[path[:dot]]
+	if !ok {
+		return false
+	}
+	nested, ok := val.(map[string]any)
+	if !ok {
+		return false
+	}
+	return walkPath(nested, path[dot+1:])
 }
