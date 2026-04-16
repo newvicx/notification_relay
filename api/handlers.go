@@ -201,9 +201,3 @@ func nullString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: s != ""}
 }
 
-func nullStringPtr(n sql.NullString) *string {
-	if !n.Valid {
-		return nil
-	}
-	return &n.String
-}

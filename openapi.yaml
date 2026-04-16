@@ -176,7 +176,7 @@ components:
 
     Delivery:
       type: object
-      required: [id, delivery_id, notification_id, group, member, channel, status, attempt, sent_at]
+      required: [id, delivery_id, notification_id, group, member, channel, status, attempt, poll_attempts, sent_at]
       properties:
         id:
           type: integer
@@ -210,6 +210,10 @@ components:
           type: integer
           format: int64
           description: Delivery attempt number (starts at 1)
+        poll_attempts:
+          type: integer
+          format: int64
+          description: Number of times the Twilio status poller has checked this delivery
         error_message:
           type: string
           nullable: true

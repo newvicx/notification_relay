@@ -331,47 +331,8 @@ func (s *Server) handleListNotificationDeliveries(w http.ResponseWriter, r *http
 		deliveries = []db.Delivery{}
 	}
 
-	resp := make([]deliveryResponse, len(deliveries))
-	for i, d := range deliveries {
-		resp[i] = toDeliveryResponse(d)
-	}
-
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
-}
-
-type deliveryResponse struct {
-	ID             int64   `json:"id"`
-	DeliveryID     string  `json:"delivery_id"`
-	NotificationID string  `json:"notification_id"`
-	Group          string  `json:"group"`
-	Member         string  `json:"member"`
-	Channel        string  `json:"channel"`
-	Status         string  `json:"status"`
-	EmailTemplate  *string `json:"email_template"`
-	EmailVars      *string `json:"email_vars"`
-	Attempt        int64   `json:"attempt"`
-	ErrorMessage   *string `json:"error_message"`
-	SentAt         string  `json:"sent_at"`
-	CompletedAt    *string `json:"completed_at"`
-}
-
-func toDeliveryResponse(d db.Delivery) deliveryResponse {
-	return deliveryResponse{
-		ID:             d.ID,
-		DeliveryID:     d.DeliveryID,
-		NotificationID: d.NotificationID,
-		Group:          d.Group,
-		Member:         d.Member,
-		Channel:        d.Channel,
-		Status:         d.Status,
-		EmailTemplate:  nullStringPtr(d.EmailTemplate),
-		EmailVars:      nullStringPtr(d.EmailVars),
-		Attempt:        d.Attempt,
-		ErrorMessage:   nullStringPtr(d.ErrorMessage),
-		SentAt:         d.SentAt,
-		CompletedAt:    nullStringPtr(d.CompletedAt),
-	}
+	json.NewEncoder(w).Encode(deliveries)
 }
 
 // handleGetDelivery returns a single delivery by delivery_id.
@@ -390,5 +351,5 @@ func (s *Server) handleGetDelivery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(toDeliveryResponse(delivery))
+	json.NewEncoder(w).Encode(delivery)
 }

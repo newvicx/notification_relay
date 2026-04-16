@@ -45,6 +45,7 @@ type Delivery struct {
 	EmailTemplate  *string `json:"email_template"`
 	EmailVars      *string `json:"email_vars"`
 	Attempt        int64   `json:"attempt"`
+	PollAttempts   int64   `json:"poll_attempts"`
 	ErrorMessage   *string `json:"error_message"`
 	SentAt         string  `json:"sent_at"`
 	CompletedAt    *string `json:"completed_at"`
@@ -331,6 +332,7 @@ func printDeliveryDetail(d Delivery) {
 	fmt.Fprintf(w, "Channel:\t%s\n", d.Channel)
 	fmt.Fprintf(w, "Status:\t%s\n", d.Status)
 	fmt.Fprintf(w, "Attempt:\t%d\n", d.Attempt)
+	fmt.Fprintf(w, "Poll Attempts:\t%d\n", d.PollAttempts)
 	fmt.Fprintf(w, "Email Template:\t%s\n", ptrOrDash(d.EmailTemplate))
 	fmt.Fprintf(w, "Email Vars:\t%s\n", ptrOrDash(d.EmailVars))
 	fmt.Fprintf(w, "Error:\t%s\n", ptrOrDash(d.ErrorMessage))
