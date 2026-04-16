@@ -24,6 +24,7 @@ Flags for 'publish':
   --event-url URL         Event URL
   --event-description D   Event description
   --start-time TIME       Event start time (RFC3339; default: now)
+  --end-time TIME         Event end time (RFC3339); marks the event as ended
   --email-template TMPL   Email template name (required when channel includes email)
   --email-var K=V         Template variable; repeat for multiple (e.g. --email-var host=web-01)
 
@@ -66,6 +67,7 @@ func runNotificationsPublish(cfg *Config, args []string) {
 	eventURL := fs.String("event-url", "", "event URL")
 	eventDesc := fs.String("event-description", "", "event description")
 	startTime := fs.String("start-time", "", "event start time (RFC3339)")
+	endTime := fs.String("end-time", "", "event end time (RFC3339); marks the event as ended")
 	emailTemplate := fs.String("email-template", "", "email template name (required when channel includes email)")
 
 	var groups stringSlice
@@ -111,6 +113,9 @@ func runNotificationsPublish(cfg *Config, args []string) {
 	}
 	if *startTime != "" {
 		req["start_time"] = *startTime
+	}
+	if *endTime != "" {
+		req["end_time"] = *endTime
 	}
 	if *emailTemplate != "" {
 		req["email_template"] = *emailTemplate
