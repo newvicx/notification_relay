@@ -27,6 +27,7 @@ type publishRequest struct {
 	EventDescription string            `json:"event_description"`
 	EventSeverity    string            `json:"event_severity"`
 	StartTime        string            `json:"start_time"`
+	EndTime          string            `json:"end_time"`
 	Groups           []string          `json:"groups"`
 	Channels         []string          `json:"channels"`
 	Message          string            `json:"message"`
@@ -116,6 +117,19 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
+	}
+
+	// Mark the event as ended if end_time was supplied and not already set.
+	if req.EndTime != "" && (!event.EndTime.Valid || event.EndTime.String == "") {
+		if err := s.q.UpdateEventEndTime(ctx, db.UpdateEventEndTimeParams{
+			EndTime: sql.NullString{String: req.EndTime, Valid: true},
+			EventID: event.EventID,
+		}); err != nil {
+			s.logger.Error("publish: update event end time failed", "event_id", event.EventID, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		event.EndTime = sql.NullString{String: req.EndTime, Valid: true}
 	}
 
 	// Encode groups and channels as JSON arrays for storage.
