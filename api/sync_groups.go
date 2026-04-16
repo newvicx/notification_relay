@@ -43,6 +43,7 @@ func (s *Server) handleListSyncGroups(w http.ResponseWriter, r *http.Request) {
 
 // handleCreateSyncGroup adds a new LDAP group to the sync list.
 // Returns 409 if the group is already configured.
+// Returns 422 if the group does not exist in LDAP.
 func (s *Server) handleCreateSyncGroup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		GroupName string `json:"group_name"`
@@ -65,6 +66,12 @@ func (s *Server) handleCreateSyncGroup(w http.ResponseWriter, r *http.Request) {
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		s.logger.Error("create sync group: check existing failed", "name", req.GroupName, "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := s.groupVerifier.VerifyGroup(ctx, req.GroupName); err != nil {
+		s.logger.Warn("create sync group: ldap verification failed", "name", req.GroupName, "error", err)
+		http.Error(w, "group not found in LDAP: "+err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
 

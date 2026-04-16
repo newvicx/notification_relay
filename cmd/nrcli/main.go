@@ -21,8 +21,7 @@ Commands:
   events             Manage events
   notifications      Publish and inspect notifications
   deliveries         Inspect delivery attempts
-  groups             View LDAP group membership
-  sync-groups        Manage LDAP sync group configuration (admin only)
+  groups             View LDAP group membership and manage sync configuration
   templates          Manage email templates
   audit              View audit log (admin only)
 
@@ -32,6 +31,8 @@ Examples:
   nrcli --user admin --password secret events list
   nrcli events get alert-disk-01
   nrcli notifications publish --event-id alert-disk-01 --group grp-oncall --channel sms --message "Disk full"
+  nrcli groups sync list
+  nrcli groups sync add grp-oncall
   nrcli templates list --json
 `
 
@@ -81,8 +82,6 @@ func main() {
 		runDeliveries(cfg, args[1:])
 	case "groups":
 		runGroups(cfg, args[1:])
-	case "sync-groups":
-		runSyncGroups(cfg, args[1:])
 	case "templates":
 		runTemplates(cfg, args[1:])
 	case "audit":

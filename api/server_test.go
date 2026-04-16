@@ -33,6 +33,18 @@ func (s *stubAuth) AuthenticateUser(_ context.Context, _, _ string) (*ldap.AuthR
 	return s.result, s.err
 }
 
+// stubGroupVerifier is a configurable stub for ldap.GroupVerifier.
+type stubGroupVerifier struct {
+	err error
+}
+
+func (s *stubGroupVerifier) VerifyGroup(_ context.Context, _ string) error {
+	return s.err
+}
+
+// okGroupVerifier returns a stub that always reports the group as valid.
+func okGroupVerifier() *stubGroupVerifier { return &stubGroupVerifier{} }
+
 // roleConfig used across all server tests.
 var testRoleConfig = map[string][]string{
 	"publisher": {"grp-pub"},
@@ -54,7 +66,7 @@ func newTestServer(t *testing.T, auth ldap.Authenticator) (*api.Server, func()) 
 	_, q := testutil.OpenDB(t)
 	queue := make(chan notify.Job, 16)
 	logger := noopLogger()
-	srv := api.NewServer(config.HTTPConfig{}, q, queue, logger, auth, testRoleConfig)
+	srv := api.NewServer(config.HTTPConfig{}, q, queue, logger, auth, okGroupVerifier(), testRoleConfig)
 	return srv, func() {}
 }
 
