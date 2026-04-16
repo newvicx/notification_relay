@@ -69,9 +69,9 @@ type LDAPConfig struct {
 	//     admin:     [grp-relay-admins]
 	//     publisher: [grp-oncall, grp-operations]
 	//     reader:    [grp-monitoring]
-	Roles map[string][]string `yaml:"roles"`
-	SyncInterval time.Duration `yaml:"sync_interval"`
-	DialTimeout  time.Duration `yaml:"dial_timeout"`
+	Roles        map[string][]string `yaml:"roles"`
+	SyncInterval time.Duration       `yaml:"sync_interval"`
+	DialTimeout  time.Duration       `yaml:"dial_timeout"`
 	// TLSSkipVerify disables certificate verification for ldaps:// connections.
 	// Has no effect when using ldap:// (plaintext).
 	TLSSkipVerify bool `yaml:"tls_skip_verify"`
@@ -111,14 +111,14 @@ type SMTPConfig struct {
 }
 
 type NotifyConfig struct {
-	WorkerCount          int           `yaml:"worker_count"`
-	RetryLimit           int           `yaml:"retry_limit"`
-	RetryDelay           time.Duration `yaml:"retry_delay"`
-	DeliveryTimeout      time.Duration `yaml:"delivery_timeout"`
+	WorkerCount     int           `yaml:"worker_count"`
+	RetryLimit      int           `yaml:"retry_limit"`
+	RetryDelay      time.Duration `yaml:"retry_delay"`
+	DeliveryTimeout time.Duration `yaml:"delivery_timeout"`
 	// DeliveryConcurrency caps the number of in-flight per-channel delivery
 	// goroutines across all workers. Prevents unbounded goroutine growth when
 	// large groups are targeted or retries pile up. Default: 16.
-	DeliveryConcurrency  int           `yaml:"delivery_concurrency"`
+	DeliveryConcurrency int `yaml:"delivery_concurrency"`
 }
 
 type LoggingConfig struct {
@@ -195,7 +195,7 @@ func defaults() *Config {
 		Notify: NotifyConfig{
 			WorkerCount:         4,
 			RetryLimit:          3,
-			RetryDelay:          60 * time.Second,
+			RetryDelay:          15 * time.Second,
 			DeliveryTimeout:     30 * time.Second,
 			DeliveryConcurrency: 16,
 		},
