@@ -91,10 +91,13 @@ func (d *Dispatcher) processJob(ctx context.Context, job Job) {
 		return
 	}
 
+	d.setNotificationStatus(ctx, notif.NotificationID, "processing", "")
+
 	var groups []string
 	if err := json.Unmarshal([]byte(notif.Groups), &groups); err != nil {
 		d.logger.Error("dispatcher: parse groups failed",
 			"notification_id", job.NotificationID, "error", err)
+		d.setNotificationStatus(ctx, notif.NotificationID, "failed", "failed to parse groups: "+err.Error())
 		return
 	}
 
@@ -102,6 +105,7 @@ func (d *Dispatcher) processJob(ctx context.Context, job Job) {
 	if err := json.Unmarshal([]byte(notif.Channels), &channels); err != nil {
 		d.logger.Error("dispatcher: parse channels failed",
 			"notification_id", job.NotificationID, "error", err)
+		d.setNotificationStatus(ctx, notif.NotificationID, "failed", "failed to parse channels: "+err.Error())
 		return
 	}
 
@@ -154,12 +158,33 @@ func (d *Dispatcher) processJob(ctx context.Context, job Job) {
 	}
 	wg.Wait()
 
+	if totalMembers == 0 {
+		d.setNotificationStatus(ctx, notif.NotificationID, "failed", "no members found for requested groups")
+	} else {
+		d.setNotificationStatus(ctx, notif.NotificationID, "completed", "")
+	}
+
 	if err := d.q.UpdateNotificationMemberCount(ctx, db.UpdateNotificationMemberCountParams{
 		MemberCount:    int64(totalMembers),
 		NotificationID: notif.NotificationID,
 	}); err != nil {
 		d.logger.Error("dispatcher: update member count failed",
 			"notification_id", notif.NotificationID, "error", err)
+	}
+}
+
+func (d *Dispatcher) setNotificationStatus(ctx context.Context, notificationID, status, errMsg string) {
+	var em sql.NullString
+	if errMsg != "" {
+		em = sql.NullString{String: errMsg, Valid: true}
+	}
+	if err := d.q.UpdateNotificationStatus(ctx, db.UpdateNotificationStatusParams{
+		Status:         status,
+		ErrorMessage:   em,
+		NotificationID: notificationID,
+	}); err != nil {
+		d.logger.Error("dispatcher: update notification status failed",
+			"notification_id", notificationID, "error", err)
 	}
 }
 

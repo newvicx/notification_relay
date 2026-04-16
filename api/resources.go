@@ -30,6 +30,8 @@ type notificationResponse struct {
 	Channels       []string `json:"channels"`
 	Message        string   `json:"message"`
 	MemberCount    int64    `json:"member_count"`
+	Status         string   `json:"status"`
+	ErrorMessage   *string  `json:"error_message,omitempty"`
 	CreatedAt      string   `json:"created_at"`
 }
 
@@ -55,6 +57,10 @@ func toNotificationResponse(n db.Notification) (notificationResponse, error) {
 	if err := json.Unmarshal([]byte(n.Channels), &channels); err != nil {
 		return notificationResponse{}, err
 	}
+	var errMsg *string
+	if n.ErrorMessage.Valid {
+		errMsg = &n.ErrorMessage.String
+	}
 	return notificationResponse{
 		ID:             n.ID,
 		NotificationID: n.NotificationID,
@@ -63,6 +69,8 @@ func toNotificationResponse(n db.Notification) (notificationResponse, error) {
 		Channels:       channels,
 		Message:        n.Message,
 		MemberCount:    n.MemberCount,
+		Status:         n.Status,
+		ErrorMessage:   errMsg,
 		CreatedAt:      n.CreatedAt,
 	}, nil
 }

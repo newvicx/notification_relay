@@ -63,6 +63,7 @@ type Querier interface {
 	UpdateEmailTemplate(ctx context.Context, arg UpdateEmailTemplateParams) error
 	UpdateEventEndTime(ctx context.Context, arg UpdateEventEndTimeParams) error
 	UpdateNotificationMemberCount(ctx context.Context, arg UpdateNotificationMemberCountParams) error
+	UpdateNotificationStatus(ctx context.Context, arg UpdateNotificationStatusParams) error
 }
 
 var _ Querier = (*Queries)(nil)

@@ -31,6 +31,8 @@ type Notification struct {
 	Channels       []string `json:"channels"`
 	Message        string   `json:"message"`
 	MemberCount    int64    `json:"member_count"`
+	Status         string   `json:"status"`
+	ErrorMessage   *string  `json:"error_message,omitempty"`
 	CreatedAt      string   `json:"created_at"`
 }
 
@@ -86,6 +88,7 @@ type PublishResponse struct {
 	Groups         []string `json:"groups"`
 	Channels       []string `json:"channels"`
 	Message        string   `json:"message"`
+	Status         string   `json:"status"`
 }
 
 type SyncGroup struct {
@@ -262,14 +265,15 @@ func printNotificationList(notifs []Notification) {
 		return
 	}
 	w := newTabWriter()
-	fmt.Fprintln(w, "NOTIFICATION ID\tEVENT ID\tGROUPS\tCHANNELS\tMEMBERS\tCREATED AT")
+	fmt.Fprintln(w, "NOTIFICATION ID\tEVENT ID\tGROUPS\tCHANNELS\tMEMBERS\tSTATUS\tCREATED AT")
 	for _, n := range notifs {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
 			n.NotificationID,
 			n.EventID,
 			strings.Join(n.Groups, ","),
 			strings.Join(n.Channels, ","),
 			n.MemberCount,
+			n.Status,
 			shortTime(n.CreatedAt),
 		)
 	}
@@ -285,6 +289,8 @@ func printNotificationDetail(n Notification) {
 	fmt.Fprintf(w, "Channels:\t%s\n", strings.Join(n.Channels, ", "))
 	fmt.Fprintf(w, "Message:\t%s\n", n.Message)
 	fmt.Fprintf(w, "Member Count:\t%d\n", n.MemberCount)
+	fmt.Fprintf(w, "Status:\t%s\n", n.Status)
+	fmt.Fprintf(w, "Error Message:\t%s\n", ptrOrDash(n.ErrorMessage))
 	fmt.Fprintf(w, "Created At:\t%s\n", n.CreatedAt)
 	w.Flush()
 }
@@ -296,6 +302,7 @@ func printPublishResponse(r PublishResponse) {
 	fmt.Fprintf(w, "Groups:\t%s\n", strings.Join(r.Groups, ", "))
 	fmt.Fprintf(w, "Channels:\t%s\n", strings.Join(r.Channels, ", "))
 	fmt.Fprintf(w, "Message:\t%s\n", r.Message)
+	fmt.Fprintf(w, "Status:\t%s\n", r.Status)
 	w.Flush()
 }
 
@@ -499,6 +506,10 @@ func printEventSummary(s EventSummary) {
 		fmt.Printf("    Groups:   %s\n", strings.Join(n.Groups, ", "))
 		fmt.Printf("    Channels: %s\n", strings.Join(n.Channels, ", "))
 		fmt.Printf("    Members:  %d\n", n.MemberCount)
+		fmt.Printf("    Status:   %s\n", n.Status)
+		if n.ErrorMessage != nil && *n.ErrorMessage != "" {
+			fmt.Printf("    Error:    %s\n", *n.ErrorMessage)
+		}
 		fmt.Printf("    Message:  %s\n", n.Message)
 
 		if len(nd.Deliveries) == 0 {

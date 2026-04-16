@@ -77,6 +77,8 @@ type Notification struct {
 	EmailTemplate  sql.NullString `json:"email_template"`
 	EmailVars      sql.NullString `json:"email_vars"`
 	CreatedAt      string         `json:"created_at"`
+	Status         string         `json:"status"`
+	ErrorMessage   sql.NullString `json:"error_message"`
 }
 
 type SyncGroup struct {
