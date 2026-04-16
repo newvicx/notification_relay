@@ -132,12 +132,9 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
 
 	if v := r.URL.Query().Get("limit"); v != "" {
 		n, err := strconv.ParseInt(v, 10, 64)
-		if err != nil || n < 1 {
-			http.Error(w, "limit must be a positive integer", http.StatusBadRequest)
+		if err != nil || n < 1 || n > 200 {
+			http.Error(w, "limit must be an integer between 1 and 200", http.StatusBadRequest)
 			return
-		}
-		if n > 200 {
-			n = 200
 		}
 		limit = n
 	}
