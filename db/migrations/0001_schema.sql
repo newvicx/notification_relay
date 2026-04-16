@@ -23,15 +23,18 @@ CREATE TABLE IF NOT EXISTS events (
     end_time          TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_events_event_id ON events (event_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_events_event_id ON events (event_id);
 
 CREATE TABLE IF NOT EXISTS notifications (
     id              INTEGER PRIMARY KEY,
     notification_id TEXT NOT NULL,
     event_id        TEXT NOT NULL,
     groups          TEXT NOT NULL,
+    channels        TEXT NOT NULL DEFAULT '[]',
     message         TEXT NOT NULL,
     member_count    INTEGER NOT NULL,
+    email_template  TEXT,
+    email_vars      TEXT,
     created_at      TEXT NOT NULL,
     FOREIGN KEY (event_id)
         REFERENCES events(event_id)
@@ -39,8 +42,8 @@ CREATE TABLE IF NOT EXISTS notifications (
         ON UPDATE CASCADE
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_notification_id ON notifications (notification_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_event_id ON notifications (event_id);
-CREATE INDEX IF NOT EXISTS idx_notifications_notification_id ON notifications (notification_id);
 
 CREATE TABLE IF NOT EXISTS deliveries (
     id              INTEGER PRIMARY KEY,
@@ -53,6 +56,7 @@ CREATE TABLE IF NOT EXISTS deliveries (
     email_template  TEXT,
     email_vars      TEXT,
     attempt         INTEGER NOT NULL DEFAULT 1,
+    poll_attempts   INTEGER NOT NULL DEFAULT 0,
     error_message   TEXT,
     sent_at         TEXT NOT NULL,
     completed_at    TEXT,
@@ -82,10 +86,16 @@ CREATE TABLE IF NOT EXISTS audit_log (
     username       TEXT NOT NULL,
     ip_address     TEXT,
     action         TEXT NOT NULL,
-    record_id      INTEGER,
     impacted_table TEXT NOT NULL,
     old_values     TEXT,
     new_values     TEXT
+);
+
+CREATE TABLE IF NOT EXISTS sync_groups (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_name TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by TEXT NOT NULL
 );
 
 -- +goose StatementEnd
@@ -93,6 +103,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 -- +goose Down
 -- +goose StatementBegin
 
+DROP TABLE IF EXISTS sync_groups;
 DROP TABLE IF EXISTS audit_log;
 DROP TABLE IF EXISTS email_templates;
 DROP TABLE IF EXISTS deliveries;
