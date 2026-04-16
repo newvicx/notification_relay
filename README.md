@@ -262,62 +262,7 @@ The `ldap.roles` mapping is evaluated at authentication time against the user's 
 
 ## Managing Sync Groups
 
-Sync groups define which LDAP groups have their membership mirrored into the local database. Unlike the rest of the LDAP configuration, sync groups are managed at runtime through the API — not in `config.yaml`. Changes take effect on the next scheduled sync cycle.
-
-Only users with the `admin` role can add or remove sync groups.
-
-### API
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/v1/sync-groups` | List all configured sync groups |
-| `POST` | `/api/v1/sync-groups` | Add a group to the sync list |
-| `DELETE` | `/api/v1/sync-groups/{group_name}` | Remove a group from the sync list |
-
-**Add a sync group:**
-
-```http
-POST /api/v1/sync-groups
-Content-Type: application/json
-Authorization: Basic <admin-credentials>
-
-{"group_name": "grp-oncall"}
-```
-
-Returns `201 Created`:
-
-```json
-{
-  "id": 1,
-  "group_name": "grp-oncall",
-  "created_at": "2026-04-16T10:00:00Z",
-  "created_by": "admin-user"
-}
-```
-
-Returns `409 Conflict` if the group is already in the sync list.
-
-**Remove a sync group:**
-
-```http
-DELETE /api/v1/sync-groups/grp-oncall
-Authorization: Basic <admin-credentials>
-```
-
-Returns `204 No Content`. Removing a sync group does not immediately purge its members from the database — they are cleared on the next sync cycle.
-
-### CLI
-
-```bash
-# List configured sync groups
-nrcli sync-groups list
-
-# Add a group
-nrcli sync-groups add grp-oncall
-
-# Remove a group
-nrcli sync-groups remove grp-oncall
-```
+Sync groups define which LDAP groups have their membership mirrored into the local database. Unlike the rest of the LDAP configuration, the sync group list is not static — it is managed at runtime through the API (under `/api/v1/sync-groups`) and via the `nrcli sync-groups` command. Only users with the `admin` role can add or remove sync groups. Changes take effect on the next scheduled sync cycle.
 
 ---
 
