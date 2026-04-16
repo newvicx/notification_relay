@@ -54,8 +54,8 @@ SELECT * FROM events ORDER BY start_time DESC LIMIT ? OFFSET ?;
 -- name: InsertNotification :one
 INSERT INTO notifications
     (notification_id, event_id, groups, channels, message, member_count,
-     email_template, email_vars, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     email_template, email_vars, created_at, status)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetNotificationByID :one
@@ -69,6 +69,9 @@ SELECT * FROM notifications WHERE event_id = ? ORDER BY created_at DESC;
 
 -- name: UpdateNotificationMemberCount :exec
 UPDATE notifications SET member_count = ? WHERE notification_id = ?;
+
+-- name: UpdateNotificationStatus :exec
+UPDATE notifications SET status = ?, error_message = ? WHERE notification_id = ?;
 
 -- deliveries
 

@@ -41,6 +41,7 @@ type publishResponse struct {
 	Groups         []string `json:"groups"`
 	Channels       []string `json:"channels"`
 	Message        string   `json:"message"`
+	Status         string   `json:"status"`
 }
 
 // handlePublishNotification accepts a notification job and queues it for async delivery.
@@ -165,6 +166,7 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 		EmailTemplate:  nullString(req.EmailTemplate),
 		EmailVars:      emailVarsJSON,
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
+		Status:         "pending",
 	})
 	if err != nil {
 		s.logger.Error("publish: insert notification failed", "error", err)
@@ -189,6 +191,7 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 		Groups:         req.Groups,
 		Channels:       req.Channels,
 		Message:        req.Message,
+		Status:         notif.Status,
 	})
 }
 

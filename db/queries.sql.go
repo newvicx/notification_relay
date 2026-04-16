@@ -146,7 +146,7 @@ func (q *Queries) GetGroupMember(ctx context.Context, arg GetGroupMemberParams) 
 }
 
 const getNotificationByID = `-- name: GetNotificationByID :one
-SELECT id, notification_id, event_id, "groups", channels, message, member_count, email_template, email_vars, created_at FROM notifications WHERE id = ?
+SELECT id, notification_id, event_id, "groups", channels, message, member_count, email_template, email_vars, created_at, status, error_message FROM notifications WHERE id = ?
 `
 
 func (q *Queries) GetNotificationByID(ctx context.Context, id int64) (Notification, error) {
@@ -163,12 +163,14 @@ func (q *Queries) GetNotificationByID(ctx context.Context, id int64) (Notificati
 		&i.EmailTemplate,
 		&i.EmailVars,
 		&i.CreatedAt,
+		&i.Status,
+		&i.ErrorMessage,
 	)
 	return i, err
 }
 
 const getNotificationByNotificationID = `-- name: GetNotificationByNotificationID :one
-SELECT id, notification_id, event_id, "groups", channels, message, member_count, email_template, email_vars, created_at FROM notifications WHERE notification_id = ?
+SELECT id, notification_id, event_id, "groups", channels, message, member_count, email_template, email_vars, created_at, status, error_message FROM notifications WHERE notification_id = ?
 `
 
 func (q *Queries) GetNotificationByNotificationID(ctx context.Context, notificationID string) (Notification, error) {
@@ -185,6 +187,8 @@ func (q *Queries) GetNotificationByNotificationID(ctx context.Context, notificat
 		&i.EmailTemplate,
 		&i.EmailVars,
 		&i.CreatedAt,
+		&i.Status,
+		&i.ErrorMessage,
 	)
 	return i, err
 }
@@ -448,9 +452,9 @@ const insertNotification = `-- name: InsertNotification :one
 
 INSERT INTO notifications
     (notification_id, event_id, groups, channels, message, member_count,
-     email_template, email_vars, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, notification_id, event_id, "groups", channels, message, member_count, email_template, email_vars, created_at
+     email_template, email_vars, created_at, status)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, notification_id, event_id, "groups", channels, message, member_count, email_template, email_vars, created_at, status, error_message
 `
 
 type InsertNotificationParams struct {
@@ -463,6 +467,7 @@ type InsertNotificationParams struct {
 	EmailTemplate  sql.NullString `json:"email_template"`
 	EmailVars      sql.NullString `json:"email_vars"`
 	CreatedAt      string         `json:"created_at"`
+	Status         string         `json:"status"`
 }
 
 // notifications
@@ -477,6 +482,7 @@ func (q *Queries) InsertNotification(ctx context.Context, arg InsertNotification
 		arg.EmailTemplate,
 		arg.EmailVars,
 		arg.CreatedAt,
+		arg.Status,
 	)
 	var i Notification
 	err := row.Scan(
@@ -490,6 +496,8 @@ func (q *Queries) InsertNotification(ctx context.Context, arg InsertNotification
 		&i.EmailTemplate,
 		&i.EmailVars,
 		&i.CreatedAt,
+		&i.Status,
+		&i.ErrorMessage,
 	)
 	return i, err
 }
@@ -846,7 +854,7 @@ func (q *Queries) ListInFlightVoiceDeliveries(ctx context.Context) ([]Delivery, 
 }
 
 const listNotificationsByEventID = `-- name: ListNotificationsByEventID :many
-SELECT id, notification_id, event_id, "groups", channels, message, member_count, email_template, email_vars, created_at FROM notifications WHERE event_id = ? ORDER BY created_at DESC
+SELECT id, notification_id, event_id, "groups", channels, message, member_count, email_template, email_vars, created_at, status, error_message FROM notifications WHERE event_id = ? ORDER BY created_at DESC
 `
 
 func (q *Queries) ListNotificationsByEventID(ctx context.Context, eventID string) ([]Notification, error) {
@@ -869,6 +877,8 @@ func (q *Queries) ListNotificationsByEventID(ctx context.Context, eventID string
 			&i.EmailTemplate,
 			&i.EmailVars,
 			&i.CreatedAt,
+			&i.Status,
+			&i.ErrorMessage,
 		); err != nil {
 			return nil, err
 		}
@@ -1012,5 +1022,20 @@ type UpdateNotificationMemberCountParams struct {
 
 func (q *Queries) UpdateNotificationMemberCount(ctx context.Context, arg UpdateNotificationMemberCountParams) error {
 	_, err := q.db.ExecContext(ctx, updateNotificationMemberCount, arg.MemberCount, arg.NotificationID)
+	return err
+}
+
+const updateNotificationStatus = `-- name: UpdateNotificationStatus :exec
+UPDATE notifications SET status = ?, error_message = ? WHERE notification_id = ?
+`
+
+type UpdateNotificationStatusParams struct {
+	Status         string         `json:"status"`
+	ErrorMessage   sql.NullString `json:"error_message"`
+	NotificationID string         `json:"notification_id"`
+}
+
+func (q *Queries) UpdateNotificationStatus(ctx context.Context, arg UpdateNotificationStatusParams) error {
+	_, err := q.db.ExecContext(ctx, updateNotificationStatus, arg.Status, arg.ErrorMessage, arg.NotificationID)
 	return err
 }
