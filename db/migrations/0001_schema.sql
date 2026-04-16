@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS notifications (
     groups          TEXT NOT NULL,
     channels        TEXT NOT NULL DEFAULT '[]',
     message         TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    error_message   TEXT,
     member_count    INTEGER NOT NULL,
     email_template  TEXT,
     email_vars      TEXT,
