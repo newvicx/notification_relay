@@ -60,6 +60,8 @@ func (s *Syncer) syncOnce(ctx context.Context) {
 		return
 	}
 
+	s.cleanupGroups(ctx, syncGroups)
+
 	if len(syncGroups) == 0 {
 		s.logger.Info("ldap sync skipped: no sync groups configured")
 		return
@@ -160,6 +162,33 @@ func (s *Syncer) syncGroup(ctx context.Context, groupName string) (int, error) {
 	}
 
 	return len(members), nil
+}
+
+// cleanupGroups removes group_members rows for any group that is no longer
+// present in sync_groups. It is called on every sync cycle so that groups
+// removed from configuration don't leave stale membership data behind.
+func (s *Syncer) cleanupGroups(ctx context.Context, activeSyncGroups []db.SyncGroup) {
+	activeSet := make(map[string]struct{}, len(activeSyncGroups))
+	for _, g := range activeSyncGroups {
+		activeSet[g.GroupName] = struct{}{}
+	}
+
+	groupNames, err := s.q.ListDistinctGroupNames(ctx)
+	if err != nil {
+		s.logger.Error("ldap cleanup: list distinct group names", "error", err)
+		return
+	}
+
+	for _, name := range groupNames {
+		if _, ok := activeSet[name]; ok {
+			continue
+		}
+		if err := s.q.DeleteGroupMembers(ctx, name); err != nil {
+			s.logger.Error("ldap cleanup: delete orphaned group", "group", name, "error", err)
+			continue
+		}
+		s.logger.Info("ldap cleanup: removed orphaned group", "group", name)
+	}
 }
 
 func toNullableString(s string) sql.NullString {
