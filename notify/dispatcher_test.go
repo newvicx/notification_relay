@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -19,6 +20,21 @@ import (
 )
 
 // ---- Stub providers ----
+
+type emailCall struct{ to, subject, body string }
+
+type stubEmail struct {
+	mu    sync.Mutex
+	calls []emailCall
+	err   error
+}
+
+func (s *stubEmail) Send(_ context.Context, to, subject, body string) error {
+	s.mu.Lock()
+	s.calls = append(s.calls, emailCall{to, subject, body})
+	s.mu.Unlock()
+	return s.err
+}
 
 type smsCall struct{ to, message string }
 
@@ -342,5 +358,183 @@ func TestDispatcher_DeliveryConcurrencyBound(t *testing.T) {
 	deliveries, _ := q.ListDeliveriesByNotificationID(context.Background(), notif.NotificationID)
 	if len(deliveries) != memberCount {
 		t.Errorf("want %d delivery rows, got %d", memberCount, len(deliveries))
+	}
+}
+
+// TestMergeEmailVars verifies that notification and event context are always
+// injected and that user-supplied vars coexist at the top level.
+func TestMergeEmailVars(t *testing.T) {
+	notif := db.Notification{
+		NotificationID: "notif-abc",
+		EventID:        "evt-xyz",
+		Message:        "disk nearly full",
+		Groups:         `["oncall","ops"]`,
+		CreatedAt:      "2026-04-16T10:00:00Z",
+	}
+	event := db.Event{
+		EventID:          "evt-xyz",
+		EventName:        sql.NullString{String: "Disk Alert", Valid: true},
+		EventSeverity:    sql.NullString{String: "major", Valid: true},
+		EventUrl:         sql.NullString{String: "https://example.com/evt-xyz", Valid: true},
+		EventDescription: sql.NullString{String: "NVMe filling up", Valid: true},
+		StartTime:        "2026-04-16T09:50:00Z",
+		EndTime:          sql.NullString{},
+	}
+	userVars := map[string]any{"custom": "hello", "count": 42}
+
+	merged := mergeEmailVars(userVars, notif, event)
+
+	// User vars preserved.
+	if merged["custom"] != "hello" {
+		t.Errorf("custom = %v, want %q", merged["custom"], "hello")
+	}
+	if merged["count"] != 42 {
+		t.Errorf("count = %v, want 42", merged["count"])
+	}
+
+	// notification sub-object.
+	n, ok := merged["notification"].(map[string]any)
+	if !ok {
+		t.Fatalf("merged[\"notification\"] is %T, want map[string]any", merged["notification"])
+	}
+	if n["id"] != "notif-abc" {
+		t.Errorf("notification.id = %v, want %q", n["id"], "notif-abc")
+	}
+	if n["message"] != "disk nearly full" {
+		t.Errorf("notification.message = %v", n["message"])
+	}
+	groups, _ := n["groups"].([]string)
+	if len(groups) != 2 || groups[0] != "oncall" {
+		t.Errorf("notification.groups = %v, want [oncall ops]", groups)
+	}
+
+	// event sub-object.
+	e, ok := merged["event"].(map[string]any)
+	if !ok {
+		t.Fatalf("merged[\"event\"] is %T, want map[string]any", merged["event"])
+	}
+	if e["id"] != "evt-xyz" {
+		t.Errorf("event.id = %v, want %q", e["id"], "evt-xyz")
+	}
+	if e["severity"] != "major" {
+		t.Errorf("event.severity = %v, want %q", e["severity"], "major")
+	}
+	if e["name"] != "Disk Alert" {
+		t.Errorf("event.name = %v, want %q", e["name"], "Disk Alert")
+	}
+	if e["end_time"] != "" {
+		t.Errorf("event.end_time = %v, want empty string for null", e["end_time"])
+	}
+}
+
+// TestMergeEmailVars_UserKeyOverriddenByContext verifies that if a user
+// supplies a key named "notification" or "event", it is replaced by the real
+// context data.
+func TestMergeEmailVars_UserKeyOverriddenByContext(t *testing.T) {
+	notif := db.Notification{
+		NotificationID: "notif-1",
+		EventID:        "evt-1",
+		Message:        "test",
+		Groups:         `[]`,
+		CreatedAt:      "2026-04-16T00:00:00Z",
+	}
+	event := db.Event{EventID: "evt-1", StartTime: "2026-04-16T00:00:00Z"}
+	userVars := map[string]any{
+		"notification": "user-supplied-value",
+		"event":        "user-supplied-value",
+	}
+
+	merged := mergeEmailVars(userVars, notif, event)
+
+	if _, ok := merged["notification"].(map[string]any); !ok {
+		t.Error("\"notification\" key should be the context map, not the user string")
+	}
+	if _, ok := merged["event"].(map[string]any); !ok {
+		t.Error("\"event\" key should be the context map, not the user string")
+	}
+}
+
+// TestDispatcher_Email_ContextVars runs a full dispatchEmail cycle and
+// verifies that the rendered email body contains values from the notification
+// and event context (injected automatically, not provided in email_vars).
+func TestDispatcher_Email_ContextVars(t *testing.T) {
+	_, q := testutil.OpenDB(t)
+	ctx := context.Background()
+
+	// Create an event with specific fields.
+	event, err := q.InsertEvent(ctx, db.InsertEventParams{
+		EventID:       "EVT-CTX",
+		EventName:     sql.NullString{String: "Power Outage", Valid: true},
+		EventSeverity: sql.NullString{String: "critical", Valid: true},
+		StartTime:     "2026-04-16T08:00:00Z",
+	})
+	if err != nil {
+		t.Fatalf("insert event: %v", err)
+	}
+
+	// Create an email template that references context vars.
+	tmpl, err := q.InsertEmailTemplate(ctx, db.InsertEmailTemplateParams{
+		TemplateName: "ctx-test",
+		Subject:      "Alert: {{.event.severity}} - {{.event.name}}",
+		Body:         "<p>{{.notification.message}}</p><p>Custom: {{.custom}}</p>",
+		RequiredVars: `["custom"]`,
+	})
+	if err != nil {
+		t.Fatalf("insert template: %v", err)
+	}
+
+	// Insert notification referencing that template and a user var.
+	varsJSON, _ := json.Marshal(map[string]any{"custom": "my-value"})
+	groupsJSON, _ := json.Marshal([]string{"grp-email"})
+	channelsJSON, _ := json.Marshal([]string{"email"})
+	notif, err := q.InsertNotification(ctx, db.InsertNotificationParams{
+		NotificationID: uuidV7(),
+		EventID:        event.EventID,
+		Groups:         string(groupsJSON),
+		Channels:       string(channelsJSON),
+		Message:        "generator offline",
+		MemberCount:    0,
+		EmailTemplate:  sql.NullString{String: tmpl.TemplateName, Valid: true},
+		EmailVars:      sql.NullString{String: string(varsJSON), Valid: true},
+		CreatedAt:      "2026-04-16T08:05:00Z",
+	})
+	if err != nil {
+		t.Fatalf("insert notification: %v", err)
+	}
+
+	// Insert a member with an email address.
+	err = q.InsertGroupMember(ctx, db.InsertGroupMemberParams{
+		GroupName: "grp-email",
+		Username:  "carol",
+		Email:     sql.NullString{String: "carol@example.com", Valid: true},
+		SyncedAt:  "2026-04-16T08:00:00Z",
+	})
+	if err != nil {
+		t.Fatalf("insert member: %v", err)
+	}
+
+	email := &stubEmail{}
+	d := NewDispatcher(defaultCfg(), q, make(chan Job, 1), nil, nil, email, noopLogger())
+	d.processJob(ctx, Job{NotificationID: notif.NotificationID})
+
+	email.mu.Lock()
+	defer email.mu.Unlock()
+
+	if len(email.calls) != 1 {
+		t.Fatalf("want 1 email sent, got %d", len(email.calls))
+	}
+	call := email.calls[0]
+	if call.to != "carol@example.com" {
+		t.Errorf("to = %q, want %q", call.to, "carol@example.com")
+	}
+	wantSubject := "Alert: critical - Power Outage"
+	if call.subject != wantSubject {
+		t.Errorf("subject = %q, want %q", call.subject, wantSubject)
+	}
+	if !strings.Contains(call.body, "generator offline") {
+		t.Errorf("body missing notification message: %q", call.body)
+	}
+	if !strings.Contains(call.body, "my-value") {
+		t.Errorf("body missing user var: %q", call.body)
 	}
 }
