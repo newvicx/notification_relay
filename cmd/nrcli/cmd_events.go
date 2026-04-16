@@ -16,6 +16,7 @@ Subcommands:
   get   EVENT_ID        Get an event by ID
   end   EVENT_ID        Mark an event as resolved
   notifications EVENT_ID  List notifications sent for an event
+  summary   EVENT_ID    Show full event detail with all notifications and deliveries
 
 Flags for 'list':
   --limit N       Max records to return (1-200, default: 50)
@@ -49,6 +50,8 @@ func runEvents(cfg *Config, args []string) {
 		runEventsEnd(cfg, args[1:])
 	case "notifications":
 		runEventsNotifications(cfg, args[1:])
+	case "summary":
+		runEventsSummary(cfg, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "error: unknown events subcommand %q\n\n", args[0])
 		fmt.Fprint(os.Stderr, eventsUsage)
@@ -215,4 +218,65 @@ func runEventsNotifications(cfg *Config, args []string) {
 		die(err)
 	}
 	printNotificationList(notifs)
+}
+
+// runEventsSummary fetches an event, all its notifications, and all deliveries
+// for each notification, then renders them as a single joined structure.
+func runEventsSummary(cfg *Config, args []string) {
+	fs := newFlagSet("events summary")
+	fs.Usage = func() { fmt.Fprint(os.Stderr, eventsUsage) }
+	parseFlags(fs, args)
+
+	if fs.NArg() == 0 {
+		dief("EVENT_ID argument is required")
+	}
+	eventID := fs.Arg(0)
+	client := NewClient(cfg)
+
+	// Fetch event.
+	eventBody, err := client.Get("/api/v1/events/"+url.PathEscape(eventID), nil)
+	if err != nil {
+		die(err)
+	}
+	var event Event
+	if err := json.Unmarshal(eventBody, &event); err != nil {
+		die(err)
+	}
+
+	// Fetch notifications for the event.
+	notifsBody, err := client.Get("/api/v1/events/"+url.PathEscape(eventID)+"/notifications", nil)
+	if err != nil {
+		die(err)
+	}
+	var notifs []Notification
+	if err := json.Unmarshal(notifsBody, &notifs); err != nil {
+		die(err)
+	}
+
+	// Fetch deliveries for each notification.
+	summary := EventSummary{Event: event, Notifications: make([]NotificationWithDeliveries, len(notifs))}
+	for i, n := range notifs {
+		deliveriesBody, err := client.Get("/api/v1/notifications/"+url.PathEscape(n.NotificationID)+"/deliveries", nil)
+		if err != nil {
+			die(err)
+		}
+		var deliveries []Delivery
+		if err := json.Unmarshal(deliveriesBody, &deliveries); err != nil {
+			die(err)
+		}
+		summary.Notifications[i] = NotificationWithDeliveries{
+			Notification: n,
+			Deliveries:   deliveries,
+		}
+	}
+
+	if cfg.JSON {
+		data, err := json.Marshal(summary)
+		if err != nil {
+			die(err)
+		}
+		printJSON(data)
+		return
+	}
+	printEventSummary(summary)
 }

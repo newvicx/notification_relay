@@ -87,6 +87,24 @@ type PublishResponse struct {
 	Message        string   `json:"message"`
 }
 
+type SyncGroup struct {
+	ID        int64  `json:"id"`
+	GroupName string `json:"group_name"`
+	CreatedAt string `json:"created_at"`
+	CreatedBy string `json:"created_by"`
+}
+
+// EventSummary is the joined structure returned by `events summary`.
+type EventSummary struct {
+	Event         Event                       `json:"event"`
+	Notifications []NotificationWithDeliveries `json:"notifications"`
+}
+
+type NotificationWithDeliveries struct {
+	Notification Notification `json:"notification"`
+	Deliveries   []Delivery   `json:"deliveries"`
+}
+
 // ── Flag helpers ──────────────────────────────────────────────────────────────
 
 // stringSlice is a flag.Value that can be specified multiple times.
@@ -404,4 +422,104 @@ func printAuditLogList(entries []AuditLogEntry) {
 		)
 	}
 	w.Flush()
+}
+
+// ── Sync groups ───────────────────────────────────────────────────────────────
+
+func printSyncGroupList(groups []SyncGroup) {
+	if len(groups) == 0 {
+		fmt.Println("No sync groups configured.")
+		return
+	}
+	w := newTabWriter()
+	fmt.Fprintln(w, "GROUP NAME\tCREATED BY\tCREATED AT")
+	for _, g := range groups {
+		fmt.Fprintf(w, "%s\t%s\t%s\n",
+			g.GroupName,
+			g.CreatedBy,
+			shortTime(g.CreatedAt),
+		)
+	}
+	w.Flush()
+}
+
+func printSyncGroupDetail(g SyncGroup) {
+	w := newTabWriter()
+	fmt.Fprintf(w, "ID:\t%d\n", g.ID)
+	fmt.Fprintf(w, "Group Name:\t%s\n", g.GroupName)
+	fmt.Fprintf(w, "Created By:\t%s\n", g.CreatedBy)
+	fmt.Fprintf(w, "Created At:\t%s\n", g.CreatedAt)
+	w.Flush()
+}
+
+// ── Event summary ─────────────────────────────────────────────────────────────
+
+// printEventSummary renders the full joined event → notifications → deliveries
+// hierarchy in a human-readable, indented format.
+func printEventSummary(s EventSummary) {
+	e := s.Event
+
+	// ── Event header ──────────────────────────────────────────────────────────
+	status := "active"
+	if e.EndTime != nil && *e.EndTime != "" {
+		status = "resolved"
+	}
+	severity := strOrDash(e.EventSeverity)
+	fmt.Printf("Event: %s  [%s]  %s\n", e.EventID, strings.ToUpper(severity), status)
+
+	if e.EventName != "" {
+		fmt.Printf("  Name:        %s\n", e.EventName)
+	}
+	if e.EventDescription != "" {
+		fmt.Printf("  Description: %s\n", e.EventDescription)
+	}
+	if e.EventURL != "" {
+		fmt.Printf("  URL:         %s\n", e.EventURL)
+	}
+	fmt.Printf("  Started:     %s\n", shortTime(e.StartTime))
+	if e.EndTime != nil && *e.EndTime != "" {
+		fmt.Printf("  Ended:       %s\n", shortTime(*e.EndTime))
+	}
+
+	if len(s.Notifications) == 0 {
+		fmt.Println("\n  No notifications.")
+		return
+	}
+
+	// ── Notifications ─────────────────────────────────────────────────────────
+	for i, nd := range s.Notifications {
+		n := nd.Notification
+		fmt.Printf("\n  Notification %d/%d  [%s]  %s\n",
+			i+1, len(s.Notifications),
+			n.NotificationID,
+			shortTime(n.CreatedAt),
+		)
+		fmt.Printf("    Groups:   %s\n", strings.Join(n.Groups, ", "))
+		fmt.Printf("    Channels: %s\n", strings.Join(n.Channels, ", "))
+		fmt.Printf("    Members:  %d\n", n.MemberCount)
+		fmt.Printf("    Message:  %s\n", n.Message)
+
+		if len(nd.Deliveries) == 0 {
+			fmt.Println("    No deliveries.")
+			continue
+		}
+
+		// ── Deliveries table ──────────────────────────────────────────────────
+		fmt.Printf("\n    Deliveries (%d):\n", len(nd.Deliveries))
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w, "    DELIVERY ID\tMEMBER\tGROUP\tCHANNEL\tSTATUS\tATTEMPT\tSENT AT\tERROR")
+		for _, d := range nd.Deliveries {
+			fmt.Fprintf(w, "    %s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
+				d.DeliveryID,
+				d.Member,
+				d.Group,
+				d.Channel,
+				d.Status,
+				d.Attempt,
+				shortTime(d.SentAt),
+				ptrOrDash(d.ErrorMessage),
+			)
+		}
+		w.Flush()
+	}
 }

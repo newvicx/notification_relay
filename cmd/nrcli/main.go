@@ -22,6 +22,7 @@ Commands:
   notifications      Publish and inspect notifications
   deliveries         Inspect delivery attempts
   groups             View LDAP group membership
+  sync-groups        Manage LDAP sync group configuration (admin only)
   templates          Manage email templates
   audit              View audit log (admin only)
 
@@ -80,6 +81,8 @@ func main() {
 		runDeliveries(cfg, args[1:])
 	case "groups":
 		runGroups(cfg, args[1:])
+	case "sync-groups":
+		runSyncGroups(cfg, args[1:])
 	case "templates":
 		runTemplates(cfg, args[1:])
 	case "audit":
