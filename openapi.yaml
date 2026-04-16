@@ -33,6 +33,8 @@ tags:
     description: Inspect individual delivery attempts
   - name: Groups
     description: Read LDAP group membership (synced periodically)
+  - name: Sync Groups
+    description: Manage which LDAP groups the syncer mirrors into the group_members table
   - name: Templates
     description: Manage email templates used for email-channel deliveries
   - name: Audit
@@ -285,6 +287,29 @@ components:
         description:
           type: string
 
+    SyncGroup:
+      type: object
+      required: [id, group_name, created_at, created_by]
+      properties:
+        id:
+          type: integer
+          format: int64
+        group_name:
+          type: string
+          description: LDAP group CN being synced
+        created_at:
+          type: string
+          format: date-time
+          description: When this group was added to the sync list (RFC3339)
+        created_by:
+          type: string
+          description: Username of the admin who added this group
+      example:
+        id: 1
+        group_name: "grp-oncall"
+        created_at: "2026-04-15T10:00:00Z"
+        created_by: "alice"
+
     AuditLogEntry:
       type: object
       required: [id, timestamp, username, action, impacted_table]
@@ -305,7 +330,8 @@ components:
           description: |
             Action performed. Well-known values:
             `login`, `login_failed`, `create_event`, `end_event`,
-            `create_template`, `update_template`, `delete_template`
+            `create_template`, `update_template`, `delete_template`,
+            `create_sync_group`, `delete_sync_group`
         impacted_table:
           type: string
           description: Database table affected (e.g. `events`, `email_templates`, `auth`)
@@ -713,6 +739,95 @@ paths:
           description: Forbidden — requires reader role
         "404":
           description: Group not found (no members have been synced for this group)
+        "500":
+          description: Internal server error
+
+  /api/v1/sync-groups:
+    get:
+      summary: List sync groups
+      description: |
+        Returns all LDAP groups currently configured for periodic membership
+        sync. Requires admin role.
+      operationId: listSyncGroups
+      tags: [Sync Groups]
+      responses:
+        "200":
+          description: Configured sync groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SyncGroup"
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires admin role
+        "500":
+          description: Internal server error
+
+    post:
+      summary: Add a sync group
+      description: |
+        Adds an LDAP group to the sync list. The syncer will begin mirroring
+        this group's membership on the next sync cycle. Returns `409 Conflict`
+        if the group is already configured.
+      operationId: createSyncGroup
+      tags: [Sync Groups]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [group_name]
+              properties:
+                group_name:
+                  type: string
+                  description: LDAP group CN to add
+            example:
+              group_name: "grp-oncall"
+      responses:
+        "201":
+          description: Sync group added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncGroup"
+        "400":
+          description: Invalid JSON body
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires admin role
+        "409":
+          description: This group is already configured for sync
+        "422":
+          description: group_name is required
+        "500":
+          description: Internal server error
+
+  /api/v1/sync-groups/{group_name}:
+    parameters:
+      - $ref: "#/components/parameters/group_name"
+
+    delete:
+      summary: Remove a sync group
+      description: |
+        Removes a group from the sync list. The group's existing members in
+        `group_members` are **not** deleted immediately — they persist until
+        overwritten by a future sync of the same group name.
+      operationId: deleteSyncGroup
+      tags: [Sync Groups]
+      responses:
+        "204":
+          description: Sync group removed
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires admin role
+        "404":
+          description: Sync group not found
         "500":
           description: Internal server error
 
