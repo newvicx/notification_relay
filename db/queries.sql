@@ -1,3 +1,17 @@
+-- sync_groups
+
+-- name: ListSyncGroups :many
+SELECT * FROM sync_groups ORDER BY group_name;
+
+-- name: GetSyncGroup :one
+SELECT * FROM sync_groups WHERE group_name = ? LIMIT 1;
+
+-- name: InsertSyncGroup :one
+INSERT INTO sync_groups (group_name, created_by) VALUES (?, ?) RETURNING *;
+
+-- name: DeleteSyncGroup :exec
+DELETE FROM sync_groups WHERE group_name = ?;
+
 -- group_members
 
 -- name: InsertGroupMember :exec

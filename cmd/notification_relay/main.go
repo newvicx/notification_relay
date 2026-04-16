@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 
 	"notification_relay/api"
 	"notification_relay/config"
@@ -29,7 +32,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger := newLogger(cfg.Logging)
+	logger, closeLogger, err := newLogger(cfg.Logging)
+	if err != nil {
+		slog.Error("failed to initialise logger", "error", err)
+		os.Exit(1)
+	}
+	defer closeLogger()
+
 	logger.Info("notification relay starting")
 
 	// Database
@@ -144,7 +153,11 @@ func main() {
 	logger.Info("notification relay stopped")
 }
 
-func newLogger(cfg config.LoggingConfig) *slog.Logger {
+// newLogger creates a slog.Logger from the logging config. When cfg.Dir is set,
+// logs are written to daily-rotating files in that directory (YYYY-MM-DD.log).
+// Otherwise logs go to stdout. The returned cleanup function flushes and closes
+// any open log file; it must be called before the process exits.
+func newLogger(cfg config.LoggingConfig) (*slog.Logger, func(), error) {
 	var level slog.Level
 	switch cfg.Level {
 	case "debug":
@@ -158,11 +171,85 @@ func newLogger(cfg config.LoggingConfig) *slog.Logger {
 	}
 
 	opts := &slog.HandlerOptions{Level: level}
+
+	if cfg.Dir != "" {
+		w, err := newDailyRotatingWriter(cfg.Dir)
+		if err != nil {
+			return nil, nil, fmt.Errorf("open log dir: %w", err)
+		}
+		var handler slog.Handler
+		if cfg.Format == "text" {
+			handler = slog.NewTextHandler(w, opts)
+		} else {
+			handler = slog.NewJSONHandler(w, opts)
+		}
+		return slog.New(handler), func() { w.Close() }, nil
+	}
+
 	var handler slog.Handler
 	if cfg.Format == "text" {
 		handler = slog.NewTextHandler(os.Stdout, opts)
 	} else {
 		handler = slog.NewJSONHandler(os.Stdout, opts)
 	}
-	return slog.New(handler)
+	return slog.New(handler), func() {}, nil
+}
+
+// dailyRotatingWriter is an io.Writer that writes to date-stamped files in a
+// directory, opening a new file whenever the calendar date advances. All writes
+// are serialised through a mutex so the writer is safe for concurrent use by
+// multiple slog handlers / goroutines.
+type dailyRotatingWriter struct {
+	dir  string
+	mu   sync.Mutex
+	file *os.File
+	date string
+}
+
+func newDailyRotatingWriter(dir string) (*dailyRotatingWriter, error) {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("create log directory %q: %w", dir, err)
+	}
+	w := &dailyRotatingWriter{dir: dir}
+	if err := w.openFile(); err != nil {
+		return nil, err
+	}
+	return w, nil
+}
+
+// openFile opens (or creates) today's log file and closes the previous one.
+// Caller must hold w.mu.
+func (w *dailyRotatingWriter) openFile() error {
+	date := time.Now().Format("2006-01-02")
+	path := filepath.Join(w.dir, date+".log")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("open log file %q: %w", path, err)
+	}
+	if w.file != nil {
+		w.file.Close()
+	}
+	w.file = f
+	w.date = date
+	return nil
+}
+
+func (w *dailyRotatingWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if today := time.Now().Format("2006-01-02"); today != w.date {
+		if err := w.openFile(); err != nil {
+			return 0, err
+		}
+	}
+	return w.file.Write(p)
+}
+
+func (w *dailyRotatingWriter) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.file != nil {
+		return w.file.Close()
+	}
+	return nil
 }

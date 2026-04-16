@@ -78,3 +78,10 @@ type Notification struct {
 	EmailVars      sql.NullString `json:"email_vars"`
 	CreatedAt      string         `json:"created_at"`
 }
+
+type SyncGroup struct {
+	ID        int64  `json:"id"`
+	GroupName string `json:"group_name"`
+	CreatedAt string `json:"created_at"`
+	CreatedBy string `json:"created_by"`
+}
