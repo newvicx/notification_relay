@@ -5,8 +5,11 @@ A notification delivery relay that sends alerts through Email, SMS, and Voice to
 ## Build & Run
 
 ```bash
-# Build
+# Build server
 go build -o notification_relay ./cmd/notification_relay
+
+# Build CLI
+go build -o nrcli ./cmd/nrcli
 
 # Run
 ./notification_relay -config config.yaml

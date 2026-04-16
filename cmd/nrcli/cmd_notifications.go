@@ -1,0 +1,185 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"os"
+)
+
+const notificationsUsage = `Usage: nrcli notifications <subcommand> [flags] [arguments]
+
+Subcommands:
+  publish               Queue a notification for delivery
+  get   NOTIFICATION_ID  Get a notification by ID
+  deliveries NOTIFICATION_ID  List delivery attempts for a notification
+
+Flags for 'publish':
+  --event-id ID           External event identifier (required)
+  --group GROUP           LDAP group to notify; repeat for multiple (required)
+  --channel CHANNEL       Delivery channel: sms, voice, email; repeat for multiple (required)
+  --message MSG           Notification message (required)
+  --event-name NAME       Event name (used when auto-creating the event)
+  --event-severity SEV    Event severity
+  --event-url URL         Event URL
+  --event-description D   Event description
+  --start-time TIME       Event start time (RFC3339; default: now)
+  --email-template TMPL   Email template name (required when channel includes email)
+  --email-var K=V         Template variable; repeat for multiple (e.g. --email-var host=web-01)
+
+Examples:
+  nrcli notifications publish \
+    --event-id alert-disk-01 \
+    --group grp-oncall \
+    --channel sms --channel email \
+    --message "Disk usage above 90% on web-01" \
+    --email-template alert-standard \
+    --email-var host=web-01 --email-var threshold=90%
+`
+
+func runNotifications(cfg *Config, args []string) {
+	if len(args) == 0 {
+		fmt.Fprint(os.Stderr, notificationsUsage)
+		os.Exit(1)
+	}
+	switch args[0] {
+	case "publish":
+		runNotificationsPublish(cfg, args[1:])
+	case "get":
+		runNotificationsGet(cfg, args[1:])
+	case "deliveries":
+		runNotificationsDeliveries(cfg, args[1:])
+	default:
+		fmt.Fprintf(os.Stderr, "error: unknown notifications subcommand %q\n\n", args[0])
+		fmt.Fprint(os.Stderr, notificationsUsage)
+		os.Exit(1)
+	}
+}
+
+func runNotificationsPublish(cfg *Config, args []string) {
+	fs := newFlagSet("notifications publish")
+
+	eventID := fs.String("event-id", "", "external event identifier (required)")
+	message := fs.String("message", "", "notification message (required)")
+	eventName := fs.String("event-name", "", "event name")
+	eventSeverity := fs.String("event-severity", "", "event severity")
+	eventURL := fs.String("event-url", "", "event URL")
+	eventDesc := fs.String("event-description", "", "event description")
+	startTime := fs.String("start-time", "", "event start time (RFC3339)")
+	emailTemplate := fs.String("email-template", "", "email template name (required when channel includes email)")
+
+	var groups stringSlice
+	var channels stringSlice
+	var emailVars kvMap
+	fs.Var(&groups, "group", "LDAP group to notify (repeat for multiple)")
+	fs.Var(&channels, "channel", "delivery channel: sms, voice, email (repeat for multiple)")
+	fs.Var(&emailVars, "email-var", "template variable as KEY=VALUE (repeat for multiple)")
+
+	fs.Usage = func() { fmt.Fprint(os.Stderr, notificationsUsage) }
+	parseFlags(fs, args)
+
+	if *eventID == "" {
+		dief("--event-id is required")
+	}
+	if len(groups) == 0 {
+		dief("at least one --group is required")
+	}
+	if len(channels) == 0 {
+		dief("at least one --channel is required")
+	}
+	if *message == "" {
+		dief("--message is required")
+	}
+
+	req := map[string]interface{}{
+		"event_id": *eventID,
+		"groups":   []string(groups),
+		"channels": []string(channels),
+		"message":  *message,
+	}
+	if *eventName != "" {
+		req["event_name"] = *eventName
+	}
+	if *eventSeverity != "" {
+		req["event_severity"] = *eventSeverity
+	}
+	if *eventURL != "" {
+		req["event_url"] = *eventURL
+	}
+	if *eventDesc != "" {
+		req["event_description"] = *eventDesc
+	}
+	if *startTime != "" {
+		req["start_time"] = *startTime
+	}
+	if *emailTemplate != "" {
+		req["email_template"] = *emailTemplate
+	}
+	if len(emailVars) > 0 {
+		req["email_vars"] = map[string]string(emailVars)
+	}
+
+	_, body, err := NewClient(cfg).Post("/api/v1/notifications", req)
+	if err != nil {
+		die(err)
+	}
+	if cfg.JSON {
+		printJSON(body)
+		return
+	}
+	var resp PublishResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		die(err)
+	}
+	printPublishResponse(resp)
+}
+
+func runNotificationsGet(cfg *Config, args []string) {
+	fs := newFlagSet("notifications get")
+	fs.Usage = func() { fmt.Fprint(os.Stderr, notificationsUsage) }
+	parseFlags(fs, args)
+
+	if fs.NArg() == 0 {
+		dief("NOTIFICATION_ID argument is required")
+	}
+	notifID := fs.Arg(0)
+
+	body, err := NewClient(cfg).Get("/api/v1/notifications/"+url.PathEscape(notifID), nil)
+	if err != nil {
+		die(err)
+	}
+	if cfg.JSON {
+		printJSON(body)
+		return
+	}
+	var n Notification
+	if err := json.Unmarshal(body, &n); err != nil {
+		die(err)
+	}
+	printNotificationDetail(n)
+}
+
+func runNotificationsDeliveries(cfg *Config, args []string) {
+	fs := newFlagSet("notifications deliveries")
+	fs.Usage = func() { fmt.Fprint(os.Stderr, notificationsUsage) }
+	parseFlags(fs, args)
+
+	if fs.NArg() == 0 {
+		dief("NOTIFICATION_ID argument is required")
+	}
+	notifID := fs.Arg(0)
+
+	body, err := NewClient(cfg).Get("/api/v1/notifications/"+url.PathEscape(notifID)+"/deliveries", nil)
+	if err != nil {
+		die(err)
+	}
+	if cfg.JSON {
+		printJSON(body)
+		return
+	}
+	var deliveries []Delivery
+	if err := json.Unmarshal(body, &deliveries); err != nil {
+		die(err)
+	}
+	printDeliveryList(deliveries)
+}
