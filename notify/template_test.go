@@ -68,8 +68,32 @@ func TestValidateTemplate_NoRequiredVars(t *testing.T) {
 	}
 }
 
+// A required var "server" should match {{.server.host}} in the template.
+func TestValidateTemplate_RequiredVarMatchesNestedAccess(t *testing.T) {
+	err := ValidateTemplate(
+		"Alert from {{.server.host}}",
+		"<p>Details: {{.server.region}}</p>",
+		[]string{"server"},
+	)
+	if err != nil {
+		t.Fatalf("required var should match nested access: %v", err)
+	}
+}
+
+// "foo" must not match {{.foobar}} — prefix-only matches are rejected.
+func TestValidateTemplate_RequiredVarNotPrefixMatch(t *testing.T) {
+	err := ValidateTemplate(
+		"Subject",
+		"<p>{{.foobar}}</p>",
+		[]string{"foo"},
+	)
+	if err == nil {
+		t.Fatal("want error: 'foo' should not match '{{.foobar}}'")
+	}
+}
+
 func TestRenderTemplate(t *testing.T) {
-	vars := map[string]string{
+	vars := map[string]any{
 		"severity": "critical",
 		"location": "Plant 3",
 	}
@@ -90,7 +114,7 @@ func TestRenderTemplate(t *testing.T) {
 }
 
 func TestRenderTemplate_HTMLEscaping(t *testing.T) {
-	vars := map[string]string{"input": "<script>alert(1)</script>"}
+	vars := map[string]any{"input": "<script>alert(1)</script>"}
 	_, body, err := RenderTemplate("Subject", "<p>{{.input}}</p>", vars)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -107,5 +131,108 @@ func TestRenderTemplate_EmptyVars(t *testing.T) {
 	}
 	if body != "<p>No vars.</p>" {
 		t.Errorf("unexpected body: %q", body)
+	}
+}
+
+// Nested map access: {{.server.host}} with vars["server"] = map[string]any{...}.
+func TestRenderTemplate_NestedMap(t *testing.T) {
+	vars := map[string]any{
+		"server": map[string]any{
+			"host":   "prod-01",
+			"region": "us-east-1",
+		},
+	}
+	subject, body, err := RenderTemplate(
+		"Alert on {{.server.host}}",
+		"<p>Region: {{.server.region}}</p>",
+		vars,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if subject != "Alert on prod-01" {
+		t.Errorf("subject = %q, want %q", subject, "Alert on prod-01")
+	}
+	if !strings.Contains(body, "us-east-1") {
+		t.Errorf("body missing region: %q", body)
+	}
+}
+
+// Slice iteration: {{range .alerts}}.
+func TestRenderTemplate_SliceRange(t *testing.T) {
+	vars := map[string]any{
+		"alerts": []any{"disk full", "cpu high"},
+	}
+	_, body, err := RenderTemplate(
+		"Subject",
+		"<ul>{{range .alerts}}<li>{{.}}</li>{{end}}</ul>",
+		vars,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(body, "disk full") || !strings.Contains(body, "cpu high") {
+		t.Errorf("body missing alert items: %q", body)
+	}
+}
+
+// Missing key returns an error when missingkey=error is set.
+func TestRenderTemplate_MissingKeyError(t *testing.T) {
+	vars := map[string]any{"present": "yes"}
+	_, _, err := RenderTemplate("Subject", "<p>{{.missing}}</p>", vars)
+	if err == nil {
+		t.Fatal("want error for missing key")
+	}
+}
+
+func TestContainsFieldRef(t *testing.T) {
+	cases := []struct {
+		src     string
+		name    string
+		want    bool
+	}{
+		{"{{.foo}}", "foo", true},
+		{"{{.foo.bar}}", "foo", true},
+		{"{{.foo | upper}}", "foo", true},
+		{"{{.foobar}}", "foo", false},
+		{"no template here", "foo", false},
+		{"{{.foo}}", "bar", false},
+	}
+	for _, tc := range cases {
+		got := containsFieldRef(tc.src, tc.name)
+		if got != tc.want {
+			t.Errorf("containsFieldRef(%q, %q) = %v, want %v", tc.src, tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestWalkPath(t *testing.T) {
+	vars := map[string]any{
+		"top": "val",
+		"nested": map[string]any{
+			"child": "x",
+			"deep": map[string]any{
+				"leaf": 1,
+			},
+		},
+	}
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{"top", true},
+		{"nested", true},
+		{"nested.child", true},
+		{"nested.deep.leaf", true},
+		{"missing", false},
+		{"nested.missing", false},
+		{"nested.deep.missing", false},
+		{"top.nope", false}, // top is a string, not a map
+	}
+	for _, tc := range cases {
+		got := walkPath(vars, tc.path)
+		if got != tc.want {
+			t.Errorf("walkPath(%q) = %v, want %v", tc.path, got, tc.want)
+		}
 	}
 }

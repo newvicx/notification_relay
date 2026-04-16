@@ -125,7 +125,7 @@ func TestIntegration_SMTPEmail_TemplateRendered(t *testing.T) {
 	subject, htmlBody, err := notify.RenderTemplate(
 		"Alert: {{.severity}}",
 		"<h1>{{.severity}}</h1><p>Location: {{.location}}</p>",
-		map[string]string{"severity": "critical", "location": "Plant 3"},
+		map[string]any{"severity": "critical", "location": "Plant 3"},
 	)
 	if err != nil {
 		t.Fatalf("RenderTemplate: %v", err)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -324,7 +325,7 @@ func (d *Dispatcher) dispatchEmail(ctx context.Context, notif db.Notification, g
 	}
 
 	// Parse vars from notification.
-	vars := make(map[string]string)
+	vars := make(map[string]any)
 	if notif.EmailVars.Valid && notif.EmailVars.String != "" {
 		if err := json.Unmarshal([]byte(notif.EmailVars.String), &vars); err != nil {
 			recordFailed("invalid email_vars JSON")
@@ -339,7 +340,7 @@ func (d *Dispatcher) dispatchEmail(ctx context.Context, notif db.Notification, g
 		return
 	}
 	for _, v := range requiredVars {
-		if _, ok := vars[v]; !ok {
+		if !walkPath(vars, v) {
 			recordFailed(fmt.Sprintf("missing required template variable: %s", v))
 			return
 		}
@@ -396,4 +397,24 @@ func errorString(err error) string {
 		return ""
 	}
 	return fmt.Sprintf("%v", err)
+}
+
+// walkPath checks whether the dotted path (e.g. "server.host") exists and is
+// non-nil in vars. Each dot-separated segment indexes one level of a
+// map[string]any. A plain name with no dots checks a top-level key.
+func walkPath(vars map[string]any, path string) bool {
+	dot := strings.IndexByte(path, '.')
+	if dot == -1 {
+		_, ok := vars[path]
+		return ok
+	}
+	val, ok := vars[path[:dot]]
+	if !ok {
+		return false
+	}
+	nested, ok := val.(map[string]any)
+	if !ok {
+		return false
+	}
+	return walkPath(nested, path[dot+1:])
 }
