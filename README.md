@@ -17,9 +17,10 @@ A notification delivery relay that sends alerts through Email, SMS, and Voice to
   - [Severities](#severities)
 - [Authentication & RBAC](#authentication--rbac)
 - [LDAP Group Sync](#ldap-group-sync)
+- [Managing Sync Groups](#managing-sync-groups)
 - [Notification Flow](#notification-flow)
 - [Email Templates](#email-templates)
-- [API Reference](#api-reference)
+- [CLI (nrcli)](#cli-nrcli)
 
 ---
 
@@ -71,7 +72,7 @@ sqlc generate
 
 All configuration lives in a single YAML file passed via `-config`. Every string value supports `${ENV_VAR}` interpolation.
 
-A minimal working configuration requires `database.path`, `ldap.primary_url`, `ldap.bind_dn`, `ldap.bind_password`, `ldap.user_base_dn`, `ldap.group_base_dn`, and at least one entry in `ldap.sync_groups`.
+A minimal working configuration requires `database.path`, `ldap.primary_url`, `ldap.bind_dn`, `ldap.bind_password`, `ldap.user_base_dn`, and `ldap.group_base_dn`. Sync groups are managed at runtime via the API (see [Managing Sync Groups](#managing-sync-groups)).
 
 ```yaml
 database:
@@ -86,8 +87,6 @@ ldap:
   bind_password: "${LDAP_PASS}"
   user_base_dn: "OU=Users,DC=corp,DC=example,DC=com"
   group_base_dn: "OU=Groups,DC=corp,DC=example,DC=com"
-  sync_groups:
-    - grp-oncall
   roles:
     admin:
       - grp-admins
@@ -141,7 +140,6 @@ LDAP drives both authentication and group membership. All API requests use HTTP 
 | `user_base_dn` | *(required)* | Root DN under which user objects are searched (e.g. `"OU=Users,DC=corp,DC=example,DC=com"`) |
 | `group_base_dn` | *(required)* | Root DN under which group objects are searched |
 | `group_filter` | `(objectClass=group)` | LDAP filter applied when looking up groups |
-| `sync_groups` | *(required)* | List of group CNs whose membership is mirrored into the local database |
 | `roles` | — | Maps role names to lists of LDAP group CNs (see [Authentication & RBAC](#authentication--rbac)) |
 | `sync_interval` | `15m` | How often to refresh group membership from LDAP |
 | `dial_timeout` | `10s` | Timeout for establishing an LDAP connection |
@@ -188,6 +186,7 @@ Controls the dispatcher worker pool and retry behavior.
 | `retry_limit` | `3` | Maximum delivery attempts per record before marking as failed |
 | `retry_delay` | `60s` | Base delay between retries. Actual delay uses exponential backoff: `retry_delay × 2^(attempt-1)` |
 | `delivery_timeout` | `30s` | Per-delivery operation timeout |
+| `delivery_concurrency` | `16` | Maximum number of in-flight per-channel delivery goroutines |
 
 ### Logging
 
@@ -195,6 +194,7 @@ Controls the dispatcher worker pool and retry behavior.
 |---|---|---|
 | `level` | `info` | Log verbosity: `debug`, `info`, `warn`, or `error` |
 | `format` | `json` | Output format: `json` or `text` |
+| `dir` | — | Directory for log file output with daily rotation. If omitted, logs are written to stdout only. |
 
 ### Severities
 
@@ -256,7 +256,13 @@ Group membership is periodically mirrored from LDAP into the local `group_member
 - If the primary LDAP server is unreachable, the sync automatically retries against `backup_url` (if configured)
 - Pagination is used for large groups (`ldap.page_size`, default `500`)
 
-Only groups listed in `ldap.sync_groups` are synced. The `ldap.roles` mapping is evaluated at authentication time against the user's live `memberOf` attribute and is independent of the sync.
+The `ldap.roles` mapping is evaluated at authentication time against the user's live `memberOf` attribute and is independent of the sync.
+
+---
+
+## Managing Sync Groups
+
+Sync groups define which LDAP groups have their membership mirrored into the local database. Unlike the rest of the LDAP configuration, the sync group list is not static — it is managed at runtime through the API (under `/api/v1/sync-groups`) and via the `nrcli sync-groups` command. Only users with the `admin` role can add or remove sync groups. Changes take effect on the next scheduled sync cycle.
 
 ---
 
@@ -314,79 +320,62 @@ If a notification specifies `email` as a channel, `email_template` is required. 
 
 ---
 
-## API Reference
+## CLI (nrcli)
 
-All endpoints are under `/api/v1/`. Authentication is HTTP Basic Auth on every request.
+`nrcli` is a command-line client for interacting with the notification_relay API. It is intended for operators and administrators who need to manage events, publish notifications, and administer the service without writing raw HTTP requests.
 
-### Notifications
+### Build
 
-| Method | Path | Role | Description |
-|---|---|---|---|
-| `POST` | `/api/v1/notifications` | publisher | Publish a notification to groups |
-| `GET` | `/api/v1/notifications/{notification_id}` | reader | Get notification details |
-| `GET` | `/api/v1/notifications/{notification_id}/deliveries` | reader | List delivery records for a notification |
-
-**Publish a notification (`POST /api/v1/notifications`):**
-
-```json
-{
-  "event_id": "INC-2026-042",
-  "event_url": "https://incidents.example.com/INC-2026-042",
-  "event_name": "Database Unreachable",
-  "event_description": "Primary DB is not responding to health checks.",
-  "event_severity": "critical",
-  "start_time": "2026-04-15T10:00:00Z",
-  "groups": ["grp-oncall"],
-  "channels": ["sms", "email"],
-  "message": "CRITICAL: Database unreachable. Check runbook immediately.",
-  "email_template": "incident-alert",
-  "email_vars": {
-    "incident_name": "Database Unreachable"
-  }
-}
+```bash
+go build -o nrcli ./cmd/nrcli
 ```
 
-Returns `202 Accepted` with `notification_id`, `event_id`, `groups`, and `channels`.
+### Usage
 
-### Events
+```
+nrcli [--url URL] [--user USER] [--password PASS] [--json] <command> <subcommand> [flags]
+```
 
-| Method | Path | Role | Description |
+**Global flags:**
+
+| Flag | Env Var | Default | Description |
 |---|---|---|---|
-| `POST` | `/api/v1/events` | publisher | Create an event |
-| `GET` | `/api/v1/events` | reader | List events (paginated) |
-| `GET` | `/api/v1/events/{event_id}` | reader | Get a single event |
-| `POST` | `/api/v1/events/{event_id}/end` | publisher | Mark an event as ended |
-| `GET` | `/api/v1/events/{event_id}/notifications` | reader | List notifications attached to an event |
+| `--url URL` | `$NR_URL` | `http://localhost:8080` | API base URL |
+| `--user USER` | `$NR_USER` | — | HTTP Basic Auth username |
+| `--password PASS` | `$NR_PASSWORD` | — | HTTP Basic Auth password |
+| `--json` | — | — | Output raw JSON instead of formatted tables |
 
-### Deliveries
+**Commands:**
 
-| Method | Path | Role | Description |
-|---|---|---|---|
-| `GET` | `/api/v1/deliveries/{delivery_id}` | reader | Get delivery status and details |
+| Command | Description |
+|---|---|
+| `events` | Create, list, and resolve events; view attached notifications |
+| `notifications` | Publish and inspect notifications |
+| `deliveries` | Inspect individual delivery attempts |
+| `groups` | View synced LDAP group membership |
+| `sync-groups` | Manage LDAP sync group configuration (admin only) |
+| `templates` | Create, update, and delete email templates |
+| `audit` | View the audit log (admin only) |
 
-### Groups
+Run `nrcli <command> --help` or `nrcli <command> <subcommand> --help` for full flag details.
 
-Groups are read-only; membership comes from LDAP sync.
+**Example — publish a notification:**
 
-| Method | Path | Role | Description |
-|---|---|---|---|
-| `GET` | `/api/v1/groups` | reader | List all synced group names |
-| `GET` | `/api/v1/groups/{group_name}/members` | reader | List members of a group |
+```bash
+nrcli --url http://relay.example.com:8080 \
+  --user alice --password secret \
+  notifications publish \
+  --event-id INC-2026-042 \
+  --group grp-oncall \
+  --channel sms --channel email \
+  --message "Critical: database unreachable" \
+  --email-template incident-alert \
+  --email-var "incident_name=Database Unreachable"
+```
 
-### Email Templates
+**Example — add a sync group and verify membership:**
 
-| Method | Path | Role | Description |
-|---|---|---|---|
-| `POST` | `/api/v1/templates` | admin | Create a template |
-| `GET` | `/api/v1/templates` | reader | List all templates |
-| `GET` | `/api/v1/templates/{template_name}` | reader | Get a template |
-| `PUT` | `/api/v1/templates/{template_name}` | admin | Update a template |
-| `DELETE` | `/api/v1/templates/{template_name}` | admin | Delete a template |
-
-### Audit Log
-
-| Method | Path | Role | Description |
-|---|---|---|---|
-| `GET` | `/api/v1/audit` | admin | List audit log entries |
-
-Supports query parameters: `username`, `from`, `to`, `limit`, `offset`.
+```bash
+nrcli sync-groups add grp-oncall
+nrcli groups members grp-oncall
+```
