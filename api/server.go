@@ -13,23 +13,25 @@ import (
 
 // Server is the HTTP API server.
 type Server struct {
-	cfg        config.HTTPConfig
-	q          *db.Queries
-	queue      chan<- notify.Job
-	logger     *slog.Logger
-	srv        *http.Server
-	auth       ldap.Authenticator
-	roleConfig map[string][]string
+	cfg           config.HTTPConfig
+	q             *db.Queries
+	queue         chan<- notify.Job
+	logger        *slog.Logger
+	srv           *http.Server
+	auth          ldap.Authenticator
+	groupVerifier ldap.GroupVerifier
+	roleConfig    map[string][]string
 }
 
-func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, logger *slog.Logger, auth ldap.Authenticator, roleConfig map[string][]string) *Server {
+func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, logger *slog.Logger, auth ldap.Authenticator, groupVerifier ldap.GroupVerifier, roleConfig map[string][]string) *Server {
 	s := &Server{
-		cfg:        cfg,
-		q:          q,
-		queue:      queue,
-		logger:     logger,
-		auth:       auth,
-		roleConfig: roleConfig,
+		cfg:           cfg,
+		q:             q,
+		queue:         queue,
+		logger:        logger,
+		auth:          auth,
+		groupVerifier: groupVerifier,
+		roleConfig:    roleConfig,
 	}
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
@@ -68,18 +70,18 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/deliveries/{delivery_id}",
 		s.authenticate(s.requirePermissions(PermRead)(http.HandlerFunc(s.handleGetDelivery))))
 
-	// Groups (LDAP-synced, read-only via API)
+	// Groups: read-only membership view (all authenticated users)
 	mux.Handle("GET /api/v1/groups",
 		s.authenticate(s.requirePermissions(PermRead)(http.HandlerFunc(s.handleListGroups))))
 	mux.Handle("GET /api/v1/groups/{group_name}/members",
 		s.authenticate(s.requirePermissions(PermRead)(http.HandlerFunc(s.handleListGroupMembers))))
 
-	// Sync groups (admin-only; controls which LDAP groups the syncer mirrors)
-	mux.Handle("GET /api/v1/sync-groups",
+	// Groups: sync configuration (admin-only; controls which LDAP groups the syncer mirrors)
+	mux.Handle("GET /api/v1/groups/sync",
 		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleListSyncGroups))))
-	mux.Handle("POST /api/v1/sync-groups",
+	mux.Handle("POST /api/v1/groups/sync",
 		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleCreateSyncGroup))))
-	mux.Handle("DELETE /api/v1/sync-groups/{group_name}",
+	mux.Handle("DELETE /api/v1/groups/sync/{group_name}",
 		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleDeleteSyncGroup))))
 
 	// Audit log (admin-only)

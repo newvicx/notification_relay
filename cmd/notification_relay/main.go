@@ -128,8 +128,19 @@ func main() {
 	)
 	ldapAuth = ldapsync.NewCachedAuthenticator(ldapAuth, cfg.LDAP.AuthCacheSize, cfg.LDAP.AuthCacheTTL)
 
+	// LDAP group verifier (used by the API to validate new sync groups)
+	groupVerifier := ldapsync.NewGroupVerifier(
+		cfg.LDAP.PrimaryURL,
+		cfg.LDAP.BackupURL,
+		cfg.LDAP.BindDN,
+		cfg.LDAP.BindPassword,
+		cfg.LDAP.GroupBaseDN,
+		cfg.LDAP.GroupFilter,
+		cfg.LDAP.TLSSkipVerify,
+	)
+
 	// HTTP server
-	srv := api.NewServer(cfg.HTTP, writerQ, jobQueue, logger, ldapAuth, cfg.LDAP.Roles)
+	srv := api.NewServer(cfg.HTTP, writerQ, jobQueue, logger, ldapAuth, groupVerifier, cfg.LDAP.Roles)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
