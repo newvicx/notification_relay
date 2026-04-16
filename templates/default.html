@@ -1,0 +1,29 @@
+<!-- email_notification.html -->
+<div>
+    {{ if .notification.message }}<p><b>Message:</b> {{ .notification.message }}</p>{{ end }}
+    {{ if .event.url }}<p><b>Event URL:</b> <a href="{{ .event.url }}">{{ .event.url }}</a></p>{{ end }}
+    {{ if .event.start_time }}<p><b>Event Start:</b> {{ .event.start_time }}</p>{{ end }}
+    {{ if .event.end_time }}<p><b>Event End:</b> {{ .event.end_time }}</p>{{ end }}
+    {{ if .event.name }}<p><b>Event Name:</b> {{ .event.name }}</p>{{ end }}
+    {{ if .event.description }}<p><b>Event Description:</b> {{ .event.description }}</p>{{ end }}
+    {{ if .event.severity }}<p><b>Severity:</b> {{ .event.severity }}</p>{{ end }}
+    {{ if .attributes }}
+        <b>Attributes:</b>
+        <table border="1" cellpadding="4" cellspacing="0" style="margin-top:8px;">
+        <thead>
+            <tr>
+            <th>Attribute</th>
+            <th>Value</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{ range $k, $v := .attributes }}
+            <tr>
+                <td><b>{{ $k }}</b></td>
+                <td>{{ $v }}</td>
+            </tr>
+            {{ end }}
+        </tbody>
+        </table>
+    {{ end }}
+</div>
