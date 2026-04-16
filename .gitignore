@@ -1,5 +1,6 @@
 # Binaries
 /notification_relay
+/nrcli
 *.exe
 *.exe~
 *.dll
