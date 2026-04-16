@@ -18,20 +18,23 @@ Subcommands:
 
 Flags for 'create' and 'update':
   --subject SUBJ        Email subject; supports Go template syntax (required)
-  --body BODY           Email body; supports Go template syntax (required)
+  --body BODY           Email body inline; supports Go template syntax
+  --body-file PATH      Read email body from a file (alternative to --body)
   --required-var VAR    Variable name that must be supplied; repeat for multiple
   --description DESC    Human-readable description
+
+Exactly one of --body or --body-file must be provided.
 
 Examples:
   nrcli templates create \
     --subject "Alert: {{.event_name}}" \
-    --body "Host {{.host}} exceeded {{.threshold}}." \
+    --body-file /etc/nrcli/templates/alert-standard.html \
     --required-var event_name --required-var host --required-var threshold \
     alert-standard
 
   nrcli templates update alert-standard \
     --subject "ALERT: {{.event_name}}" \
-    --body "$(cat body.html)"
+    --body-file ./body.html
 `
 
 func runTemplates(cfg *Config, args []string) {
@@ -57,6 +60,26 @@ func runTemplates(cfg *Config, args []string) {
 	}
 }
 
+// resolveBody returns the template body string from either --body (inline) or
+// --body-file (file path). Exactly one must be non-empty; it exits with an
+// error if neither or both are provided.
+func resolveBody(body, bodyFile string) string {
+	if body != "" && bodyFile != "" {
+		dief("--body and --body-file are mutually exclusive")
+	}
+	if body == "" && bodyFile == "" {
+		dief("one of --body or --body-file is required")
+	}
+	if body != "" {
+		return body
+	}
+	data, err := os.ReadFile(bodyFile)
+	if err != nil {
+		dief("read body file: %v", err)
+	}
+	return string(data)
+}
+
 func runTemplatesList(cfg *Config, args []string) {
 	fs := newFlagSet("templates list")
 	fs.Usage = func() { fmt.Fprint(os.Stderr, templatesUsage) }
@@ -80,7 +103,8 @@ func runTemplatesList(cfg *Config, args []string) {
 func runTemplatesCreate(cfg *Config, args []string) {
 	fs := newFlagSet("templates create")
 	subject := fs.String("subject", "", "email subject (Go template syntax, required)")
-	body := fs.String("body", "", "email body (Go template syntax, required)")
+	body := fs.String("body", "", "email body inline (Go template syntax)")
+	bodyFile := fs.String("body-file", "", "read email body from this file")
 	desc := fs.String("description", "", "description")
 	var requiredVars stringSlice
 	fs.Var(&requiredVars, "required-var", "required template variable (repeat for multiple)")
@@ -95,14 +119,12 @@ func runTemplatesCreate(cfg *Config, args []string) {
 	if *subject == "" {
 		dief("--subject is required")
 	}
-	if *body == "" {
-		dief("--body is required")
-	}
+	bodyContent := resolveBody(*body, *bodyFile)
 
 	req := map[string]interface{}{
 		"template_name": name,
 		"subject":       *subject,
-		"body":          *body,
+		"body":          bodyContent,
 		"required_vars": []string(requiredVars),
 	}
 	if *desc != "" {
@@ -152,7 +174,8 @@ func runTemplatesGet(cfg *Config, args []string) {
 func runTemplatesUpdate(cfg *Config, args []string) {
 	fs := newFlagSet("templates update")
 	subject := fs.String("subject", "", "email subject (Go template syntax, required)")
-	body := fs.String("body", "", "email body (Go template syntax, required)")
+	body := fs.String("body", "", "email body inline (Go template syntax)")
+	bodyFile := fs.String("body-file", "", "read email body from this file")
 	desc := fs.String("description", "", "description")
 	var requiredVars stringSlice
 	fs.Var(&requiredVars, "required-var", "required template variable (repeat for multiple)")
@@ -167,14 +190,12 @@ func runTemplatesUpdate(cfg *Config, args []string) {
 	if *subject == "" {
 		dief("--subject is required")
 	}
-	if *body == "" {
-		dief("--body is required")
-	}
+	bodyContent := resolveBody(*body, *bodyFile)
 
 	req := map[string]interface{}{
 		"template_name": name,
 		"subject":       *subject,
-		"body":          *body,
+		"body":          bodyContent,
 		"required_vars": []string(requiredVars),
 	}
 	if *desc != "" {
