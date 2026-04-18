@@ -19,6 +19,12 @@ type Job struct {
 	NotificationID string
 }
 
+// notifDestination mirrors the API Destination type for JSON parsing in the dispatcher.
+type notifDestination struct {
+	Channel string `json:"channel"`
+	Target  string `json:"target"`
+}
+
 // Dispatcher reads Jobs from the queue channel and fans them out to delivery providers.
 type Dispatcher struct {
 	cfg    config.NotifyConfig
@@ -94,11 +100,13 @@ func (d *Dispatcher) processJob(ctx context.Context, job Job) {
 	d.setNotificationStatus(ctx, notif.NotificationID, "processing", "")
 
 	var groups []string
-	if err := json.Unmarshal([]byte(notif.Groups), &groups); err != nil {
-		d.logger.Error("dispatcher: parse groups failed",
-			"notification_id", job.NotificationID, "error", err)
-		d.setNotificationStatus(ctx, notif.NotificationID, "failed", "failed to parse groups: "+err.Error())
-		return
+	if notif.Groups.Valid && notif.Groups.String != "" {
+		if err := json.Unmarshal([]byte(notif.Groups.String), &groups); err != nil {
+			d.logger.Error("dispatcher: parse groups failed",
+				"notification_id", job.NotificationID, "error", err)
+			d.setNotificationStatus(ctx, notif.NotificationID, "failed", "failed to parse groups: "+err.Error())
+			return
+		}
 	}
 
 	var channels []string
@@ -107,6 +115,16 @@ func (d *Dispatcher) processJob(ctx context.Context, job Job) {
 			"notification_id", job.NotificationID, "error", err)
 		d.setNotificationStatus(ctx, notif.NotificationID, "failed", "failed to parse channels: "+err.Error())
 		return
+	}
+
+	var destinations []notifDestination
+	if notif.Destinations.Valid && notif.Destinations.String != "" {
+		if err := json.Unmarshal([]byte(notif.Destinations.String), &destinations); err != nil {
+			d.logger.Error("dispatcher: parse destinations failed",
+				"notification_id", job.NotificationID, "error", err)
+			d.setNotificationStatus(ctx, notif.NotificationID, "failed", "failed to parse destinations: "+err.Error())
+			return
+		}
 	}
 
 	channelSet := make(map[string]bool, len(channels))
@@ -156,16 +174,41 @@ func (d *Dispatcher) processJob(ctx context.Context, job Job) {
 			}
 		}
 	}
+
+	for _, dest := range destinations {
+		wg.Add(1)
+		go func(dst notifDestination) {
+			defer wg.Done()
+			d.sem <- struct{}{}
+			defer func() { <-d.sem }()
+			switch dst.Channel {
+			case "sms":
+				if d.sms != nil {
+					d.dispatchSMSToDestination(ctx, notif, dst.Target)
+				}
+			case "voice":
+				if d.voice != nil {
+					d.dispatchVoiceToDestination(ctx, notif, dst.Target)
+				}
+			case "email":
+				if d.email != nil {
+					d.dispatchEmailToDestination(ctx, notif, dst.Target)
+				}
+			}
+		}(dest)
+	}
 	wg.Wait()
 
-	if totalMembers == 0 {
+	// member_count tracks total delivery targets: group members + direct destinations.
+	totalTargets := totalMembers + len(destinations)
+	if totalTargets == 0 {
 		d.setNotificationStatus(ctx, notif.NotificationID, "failed", "no members found for requested groups")
 	} else {
 		d.setNotificationStatus(ctx, notif.NotificationID, "completed", "")
 	}
 
 	if err := d.q.UpdateNotificationMemberCount(ctx, db.UpdateNotificationMemberCountParams{
-		MemberCount:    int64(totalMembers),
+		MemberCount:    int64(totalTargets),
 		NotificationID: notif.NotificationID,
 	}); err != nil {
 		d.logger.Error("dispatcher: update member count failed",
@@ -225,8 +268,8 @@ func (d *Dispatcher) dispatchSMS(ctx context.Context, notif db.Notification, gro
 	delivery, err := d.q.InsertDelivery(ctx, db.InsertDeliveryParams{
 		DeliveryID:     deliveryID,
 		NotificationID: notif.NotificationID,
-		Group:          group,
-		Member:         member.Username,
+		Group:          sql.NullString{String: group, Valid: true},
+		Member:         sql.NullString{String: member.Username, Valid: true},
 		Channel:        "sms",
 		Status:         status,
 		Attempt:        int64(finalAttempt),
@@ -286,8 +329,8 @@ func (d *Dispatcher) dispatchVoice(ctx context.Context, notif db.Notification, g
 	delivery, err := d.q.InsertDelivery(ctx, db.InsertDeliveryParams{
 		DeliveryID:     deliveryID,
 		NotificationID: notif.NotificationID,
-		Group:          group,
-		Member:         member.Username,
+		Group:          sql.NullString{String: group, Valid: true},
+		Member:         sql.NullString{String: member.Username, Valid: true},
 		Channel:        "voice",
 		Status:         status,
 		Attempt:        int64(finalAttempt),
@@ -314,8 +357,8 @@ func (d *Dispatcher) dispatchEmail(ctx context.Context, notif db.Notification, g
 		delivery, err := d.q.InsertDelivery(ctx, db.InsertDeliveryParams{
 			DeliveryID:     deliveryID,
 			NotificationID: notif.NotificationID,
-			Group:          group,
-			Member:         member.Username,
+			Group:          sql.NullString{String: group, Valid: true},
+			Member:         sql.NullString{String: member.Username, Valid: true},
 			Channel:        "email",
 			Status:         "failed",
 			EmailTemplate:  notif.EmailTemplate,
@@ -407,8 +450,8 @@ func (d *Dispatcher) dispatchEmail(ctx context.Context, notif db.Notification, g
 	delivery, err := d.q.InsertDelivery(ctx, db.InsertDeliveryParams{
 		DeliveryID:     deliveryID,
 		NotificationID: notif.NotificationID,
-		Group:          group,
-		Member:         member.Username,
+		Group:          sql.NullString{String: group, Valid: true},
+		Member:         sql.NullString{String: member.Username, Valid: true},
 		Channel:        "email",
 		Status:         status,
 		EmailTemplate:  notif.EmailTemplate,
@@ -419,6 +462,231 @@ func (d *Dispatcher) dispatchEmail(ctx context.Context, notif db.Notification, g
 	if err != nil {
 		d.logger.Error("dispatcher: insert email delivery failed",
 			"notification_id", notif.NotificationID, "member", member.Username, "error", err)
+		return
+	}
+	if sendErr != nil {
+		_ = d.q.UpdateDeliveryError(ctx, db.UpdateDeliveryErrorParams{
+			DeliveryID:   delivery.DeliveryID,
+			ErrorMessage: sql.NullString{String: errorString(sendErr), Valid: true},
+		})
+	}
+}
+
+func (d *Dispatcher) dispatchSMSToDestination(ctx context.Context, notif db.Notification, target string) {
+	var (
+		lastErr      error
+		sid, status  string
+		finalAttempt int
+	)
+
+	for n := 0; n < d.cfg.RetryLimit; n++ {
+		if n > 0 {
+			delay := d.cfg.RetryDelay * (1 << (n - 1))
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return
+			}
+		}
+		finalAttempt = n + 1
+		sid, status, lastErr = d.sms.Send(target, notif.Message)
+		if lastErr == nil {
+			break
+		}
+		d.logger.Warn("dispatcher: sms destination send attempt failed",
+			"notification_id", notif.NotificationID,
+			"target", target,
+			"attempt", finalAttempt,
+			"error", lastErr)
+	}
+
+	deliveryID := sid
+	if lastErr != nil {
+		deliveryID = uuidV7()
+		status = "failed"
+	}
+
+	delivery, err := d.q.InsertDestinationDelivery(ctx, db.InsertDestinationDeliveryParams{
+		DeliveryID:     deliveryID,
+		NotificationID: notif.NotificationID,
+		Destination:    sql.NullString{String: target, Valid: true},
+		Channel:        "sms",
+		Status:         status,
+		Attempt:        int64(finalAttempt),
+		SentAt:         time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		d.logger.Error("dispatcher: insert sms destination delivery failed",
+			"notification_id", notif.NotificationID, "target", target, "error", err)
+		return
+	}
+	if lastErr != nil {
+		_ = d.q.UpdateDeliveryError(ctx, db.UpdateDeliveryErrorParams{
+			DeliveryID:   delivery.DeliveryID,
+			ErrorMessage: sql.NullString{String: errorString(lastErr), Valid: true},
+		})
+	}
+}
+
+func (d *Dispatcher) dispatchVoiceToDestination(ctx context.Context, notif db.Notification, target string) {
+	var (
+		lastErr      error
+		sid, status  string
+		finalAttempt int
+	)
+
+	for n := 0; n < d.cfg.RetryLimit; n++ {
+		if n > 0 {
+			delay := d.cfg.RetryDelay * (1 << (n - 1))
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return
+			}
+		}
+		finalAttempt = n + 1
+		sid, status, lastErr = d.voice.Call(target, notif.Message)
+		if lastErr == nil {
+			break
+		}
+		d.logger.Warn("dispatcher: voice destination call attempt failed",
+			"notification_id", notif.NotificationID,
+			"target", target,
+			"attempt", finalAttempt,
+			"error", lastErr)
+	}
+
+	deliveryID := sid
+	if lastErr != nil {
+		deliveryID = uuidV7()
+		status = "failed"
+	}
+
+	delivery, err := d.q.InsertDestinationDelivery(ctx, db.InsertDestinationDeliveryParams{
+		DeliveryID:     deliveryID,
+		NotificationID: notif.NotificationID,
+		Destination:    sql.NullString{String: target, Valid: true},
+		Channel:        "voice",
+		Status:         status,
+		Attempt:        int64(finalAttempt),
+		SentAt:         time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		d.logger.Error("dispatcher: insert voice destination delivery failed",
+			"notification_id", notif.NotificationID, "target", target, "error", err)
+		return
+	}
+	if lastErr != nil {
+		_ = d.q.UpdateDeliveryError(ctx, db.UpdateDeliveryErrorParams{
+			DeliveryID:   delivery.DeliveryID,
+			ErrorMessage: sql.NullString{String: errorString(lastErr), Valid: true},
+		})
+	}
+}
+
+func (d *Dispatcher) dispatchEmailToDestination(ctx context.Context, notif db.Notification, target string) {
+	deliveryID := uuidV7()
+	sentAt := time.Now().UTC().Format(time.RFC3339)
+
+	recordFailed := func(reason string) {
+		delivery, err := d.q.InsertDestinationDelivery(ctx, db.InsertDestinationDeliveryParams{
+			DeliveryID:     deliveryID,
+			NotificationID: notif.NotificationID,
+			Destination:    sql.NullString{String: target, Valid: true},
+			Channel:        "email",
+			Status:         "failed",
+			EmailTemplate:  notif.EmailTemplate,
+			EmailVars:      notif.EmailVars,
+			Attempt:        1,
+			SentAt:         sentAt,
+		})
+		if err != nil {
+			d.logger.Error("dispatcher: insert email destination delivery failed",
+				"notification_id", notif.NotificationID, "target", target, "error", err)
+			return
+		}
+		_ = d.q.UpdateDeliveryError(ctx, db.UpdateDeliveryErrorParams{
+			DeliveryID:   delivery.DeliveryID,
+			ErrorMessage: sql.NullString{String: reason, Valid: true},
+		})
+	}
+
+	if !notif.EmailTemplate.Valid || notif.EmailTemplate.String == "" {
+		recordFailed("no email template specified")
+		return
+	}
+
+	tmpl, err := d.q.GetEmailTemplateByName(ctx, notif.EmailTemplate.String)
+	if err != nil {
+		d.logger.Error("dispatcher: load email template failed",
+			"template", notif.EmailTemplate.String, "error", err)
+		recordFailed(fmt.Sprintf("template not found: %s", notif.EmailTemplate.String))
+		return
+	}
+
+	userVars := make(map[string]any)
+	if notif.EmailVars.Valid && notif.EmailVars.String != "" {
+		if err := json.Unmarshal([]byte(notif.EmailVars.String), &userVars); err != nil {
+			recordFailed("invalid email_vars JSON")
+			return
+		}
+	}
+
+	event, err := d.q.GetEventByEventID(ctx, notif.EventID)
+	if err != nil {
+		d.logger.Error("dispatcher: load event failed",
+			"notification_id", notif.NotificationID, "event_id", notif.EventID, "error", err)
+		recordFailed(fmt.Sprintf("failed to load event: %s", notif.EventID))
+		return
+	}
+
+	vars := mergeEmailVars(userVars, notif, event)
+
+	var requiredVars []string
+	if err := json.Unmarshal([]byte(tmpl.RequiredVars), &requiredVars); err != nil {
+		recordFailed("template has invalid required_vars")
+		return
+	}
+	for _, v := range requiredVars {
+		if !walkPath(vars, v) {
+			recordFailed(fmt.Sprintf("missing required template variable: %s", v))
+			return
+		}
+	}
+
+	subject, body, err := RenderTemplate(tmpl.Subject, tmpl.Body, vars)
+	if err != nil {
+		d.logger.Error("dispatcher: render email template failed",
+			"template", tmpl.TemplateName, "error", err)
+		recordFailed(fmt.Sprintf("template render error: %v", err))
+		return
+	}
+
+	sendErr := d.email.Send(ctx, target, subject, body)
+
+	status := "sent"
+	if sendErr != nil {
+		status = "failed"
+		d.logger.Warn("dispatcher: email destination send failed",
+			"notification_id", notif.NotificationID,
+			"target", target,
+			"error", sendErr)
+	}
+
+	delivery, err := d.q.InsertDestinationDelivery(ctx, db.InsertDestinationDeliveryParams{
+		DeliveryID:     deliveryID,
+		NotificationID: notif.NotificationID,
+		Destination:    sql.NullString{String: target, Valid: true},
+		Channel:        "email",
+		Status:         status,
+		EmailTemplate:  notif.EmailTemplate,
+		EmailVars:      notif.EmailVars,
+		Attempt:        1,
+		SentAt:         sentAt,
+	})
+	if err != nil {
+		d.logger.Error("dispatcher: insert email destination delivery failed",
+			"notification_id", notif.NotificationID, "target", target, "error", err)
 		return
 	}
 	if sendErr != nil {
@@ -451,7 +719,9 @@ func mergeEmailVars(userVars map[string]any, notif db.Notification, event db.Eve
 	}
 
 	var groups []string
-	json.Unmarshal([]byte(notif.Groups), &groups) // already validated upstream
+	if notif.Groups.Valid {
+		json.Unmarshal([]byte(notif.Groups.String), &groups) // already validated upstream
+	}
 
 	merged["notification"] = map[string]any{
 		"id":         notif.NotificationID,

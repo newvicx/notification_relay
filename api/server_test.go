@@ -354,6 +354,167 @@ func TestPublishAndGetNotification(t *testing.T) {
 	}
 }
 
+func TestPublish_DestinationsOnly(t *testing.T) {
+	srv, _ := newTestServer(t, publisherAuth())
+
+	eventBody, _ := json.Marshal(map[string]any{"event_id": "EVT-DONLY"})
+	do(srv, "POST", "/api/v1/events", eventBody)
+
+	body, _ := json.Marshal(map[string]any{
+		"event_id": "EVT-DONLY",
+		"destinations": []map[string]any{
+			{"channel": "sms", "target": "+12125550001"},
+		},
+		"message": "direct alert",
+	})
+	w := do(srv, "POST", "/api/v1/notifications", body)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("want 202, got %d: %s", w.Code, w.Body)
+	}
+
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if _, ok := resp["notification_id"].(string); !ok {
+		t.Errorf("notification_id missing from response: %v", resp)
+	}
+	dests, ok := resp["destinations"].([]any)
+	if !ok || len(dests) != 1 {
+		t.Errorf("want destinations array of length 1, got %v", resp["destinations"])
+	}
+}
+
+func TestPublish_GroupsAndDestinations(t *testing.T) {
+	srv, _ := newTestServer(t, publisherAuth())
+
+	eventBody, _ := json.Marshal(map[string]any{"event_id": "EVT-BOTH"})
+	do(srv, "POST", "/api/v1/events", eventBody)
+
+	body, _ := json.Marshal(map[string]any{
+		"event_id": "EVT-BOTH",
+		"groups":   []string{"grp-oncall"},
+		"channels": []string{"sms"},
+		"destinations": []map[string]any{
+			{"channel": "sms", "target": "+12125550002"},
+		},
+		"message": "combined alert",
+	})
+	w := do(srv, "POST", "/api/v1/notifications", body)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("want 202, got %d: %s", w.Code, w.Body)
+	}
+}
+
+func TestPublish_MissingBoth(t *testing.T) {
+	srv, _ := newTestServer(t, publisherAuth())
+
+	eventBody, _ := json.Marshal(map[string]any{"event_id": "EVT-MISS"})
+	do(srv, "POST", "/api/v1/events", eventBody)
+
+	body, _ := json.Marshal(map[string]any{
+		"event_id": "EVT-MISS",
+		"message":  "alert",
+	})
+	w := do(srv, "POST", "/api/v1/notifications", body)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", w.Code, w.Body)
+	}
+}
+
+func TestPublish_ChannelsRequiredWithGroups(t *testing.T) {
+	srv, _ := newTestServer(t, publisherAuth())
+
+	eventBody, _ := json.Marshal(map[string]any{"event_id": "EVT-CHNL"})
+	do(srv, "POST", "/api/v1/events", eventBody)
+
+	body, _ := json.Marshal(map[string]any{
+		"event_id": "EVT-CHNL",
+		"groups":   []string{"grp-oncall"},
+		"message":  "alert",
+	})
+	w := do(srv, "POST", "/api/v1/notifications", body)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", w.Code, w.Body)
+	}
+}
+
+func TestPublish_InvalidDestinationChannel(t *testing.T) {
+	srv, _ := newTestServer(t, publisherAuth())
+
+	eventBody, _ := json.Marshal(map[string]any{"event_id": "EVT-DCHAN"})
+	do(srv, "POST", "/api/v1/events", eventBody)
+
+	body, _ := json.Marshal(map[string]any{
+		"event_id": "EVT-DCHAN",
+		"destinations": []map[string]any{
+			{"channel": "fax", "target": "+12125550003"},
+		},
+		"message": "alert",
+	})
+	w := do(srv, "POST", "/api/v1/notifications", body)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", w.Code, w.Body)
+	}
+}
+
+func TestPublish_InvalidDestinationTarget_Email(t *testing.T) {
+	srv, _ := newTestServer(t, publisherAuth())
+
+	eventBody, _ := json.Marshal(map[string]any{"event_id": "EVT-DEMAIL"})
+	do(srv, "POST", "/api/v1/events", eventBody)
+
+	body, _ := json.Marshal(map[string]any{
+		"event_id": "EVT-DEMAIL",
+		"destinations": []map[string]any{
+			{"channel": "email", "target": "notanemail"},
+		},
+		"message":        "alert",
+		"email_template": "tmpl",
+	})
+	w := do(srv, "POST", "/api/v1/notifications", body)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", w.Code, w.Body)
+	}
+}
+
+func TestPublish_InvalidDestinationTarget_Phone(t *testing.T) {
+	srv, _ := newTestServer(t, publisherAuth())
+
+	eventBody, _ := json.Marshal(map[string]any{"event_id": "EVT-DPHONE"})
+	do(srv, "POST", "/api/v1/events", eventBody)
+
+	body, _ := json.Marshal(map[string]any{
+		"event_id": "EVT-DPHONE",
+		"destinations": []map[string]any{
+			{"channel": "sms", "target": "12345"},
+		},
+		"message": "alert",
+	})
+	w := do(srv, "POST", "/api/v1/notifications", body)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", w.Code, w.Body)
+	}
+}
+
+func TestPublish_EmailDestinationRequiresTemplate(t *testing.T) {
+	srv, _ := newTestServer(t, publisherAuth())
+
+	eventBody, _ := json.Marshal(map[string]any{"event_id": "EVT-ETMPL"})
+	do(srv, "POST", "/api/v1/events", eventBody)
+
+	body, _ := json.Marshal(map[string]any{
+		"event_id": "EVT-ETMPL",
+		"destinations": []map[string]any{
+			{"channel": "email", "target": "user@example.com"},
+		},
+		"message": "alert",
+		// no email_template
+	})
+	w := do(srv, "POST", "/api/v1/notifications", body)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", w.Code, w.Body)
+	}
+}
+
 func TestListNotificationDeliveries_Empty(t *testing.T) {
 	srv, _ := newTestServer(t, publisherAuth())
 

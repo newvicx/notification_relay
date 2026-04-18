@@ -53,9 +53,9 @@ SELECT * FROM events ORDER BY start_time DESC LIMIT ? OFFSET ?;
 
 -- name: InsertNotification :one
 INSERT INTO notifications
-    (notification_id, event_id, groups, channels, message, member_count,
+    (notification_id, event_id, groups, destinations, channels, message, member_count,
      email_template, email_vars, created_at, status)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetNotificationByID :one
@@ -78,6 +78,11 @@ UPDATE notifications SET status = ?, error_message = ? WHERE notification_id = ?
 -- name: InsertDelivery :one
 INSERT INTO deliveries (delivery_id, notification_id, "group", member, channel, status, email_template, email_vars, attempt, sent_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING *;
+
+-- name: InsertDestinationDelivery :one
+INSERT INTO deliveries (delivery_id, notification_id, destination, channel, status, email_template, email_vars, attempt, sent_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetDeliveryByDeliveryID :one

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"time"
 
 	"notification_relay/db"
@@ -20,6 +21,17 @@ var validChannels = map[string]bool{
 	"email": true,
 }
 
+var (
+	reEmail = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
+	rePhone = regexp.MustCompile(`^\+[1-9]\d{6,14}$`) // E.164
+)
+
+// Destination is a direct notification target for a single channel.
+type Destination struct {
+	Channel string `json:"channel"`
+	Target  string `json:"target"`
+}
+
 type publishRequest struct {
 	EventID          string            `json:"event_id"`
 	EventURL         string            `json:"event_url"`
@@ -29,6 +41,7 @@ type publishRequest struct {
 	StartTime        string            `json:"start_time"`
 	EndTime          string            `json:"end_time"`
 	Groups           []string          `json:"groups"`
+	Destinations     []Destination     `json:"destinations"`
 	Channels         []string          `json:"channels"`
 	Message          string            `json:"message"`
 	EmailTemplate    string            `json:"email_template"`
@@ -36,12 +49,13 @@ type publishRequest struct {
 }
 
 type publishResponse struct {
-	NotificationID string   `json:"notification_id"`
-	EventID        string   `json:"event_id"`
-	Groups         []string `json:"groups"`
-	Channels       []string `json:"channels"`
-	Message        string   `json:"message"`
-	Status         string   `json:"status"`
+	NotificationID string        `json:"notification_id"`
+	EventID        string        `json:"event_id"`
+	Groups         []string      `json:"groups,omitempty"`
+	Destinations   []Destination `json:"destinations,omitempty"`
+	Channels       []string      `json:"channels,omitempty"`
+	Message        string        `json:"message"`
+	Status         string        `json:"status"`
 }
 
 // handlePublishNotification accepts a notification job and queues it for async delivery.
@@ -59,12 +73,12 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "event_id is required", http.StatusBadRequest)
 		return
 	}
-	if len(req.Groups) == 0 {
-		http.Error(w, "groups must be non-empty", http.StatusBadRequest)
+	if len(req.Groups) == 0 && len(req.Destinations) == 0 {
+		http.Error(w, "at least one group or destination is required", http.StatusBadRequest)
 		return
 	}
-	if len(req.Channels) == 0 {
-		http.Error(w, "channels must be non-empty", http.StatusBadRequest)
+	if len(req.Groups) > 0 && len(req.Channels) == 0 {
+		http.Error(w, "channels must be non-empty when groups are specified", http.StatusBadRequest)
 		return
 	}
 	for _, ch := range req.Channels {
@@ -73,17 +87,43 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
+	for i, dest := range req.Destinations {
+		if !validChannels[dest.Channel] {
+			http.Error(w, fmt.Sprintf("destinations[%d]: unknown channel %q; valid values: sms, voice, email", i, dest.Channel), http.StatusBadRequest)
+			return
+		}
+		if dest.Target == "" {
+			http.Error(w, fmt.Sprintf("destinations[%d]: target is required", i), http.StatusBadRequest)
+			return
+		}
+		if dest.Channel == "email" && !reEmail.MatchString(dest.Target) {
+			http.Error(w, fmt.Sprintf("destinations[%d]: invalid email address", i), http.StatusBadRequest)
+			return
+		}
+		if (dest.Channel == "sms" || dest.Channel == "voice") && !rePhone.MatchString(dest.Target) {
+			http.Error(w, fmt.Sprintf("destinations[%d]: invalid phone number (E.164 format required, e.g. +12125551234)", i), http.StatusBadRequest)
+			return
+		}
+	}
 	if req.Message == "" {
 		http.Error(w, "message is required", http.StatusBadRequest)
 		return
 	}
 
-	// Email channel requires a template.
+	// Email channel requires a template — check both group channels and destination channels.
 	hasEmail := false
 	for _, ch := range req.Channels {
 		if ch == "email" {
 			hasEmail = true
 			break
+		}
+	}
+	if !hasEmail {
+		for _, dest := range req.Destinations {
+			if dest.Channel == "email" {
+				hasEmail = true
+				break
+			}
 		}
 	}
 	if hasEmail && req.EmailTemplate == "" {
@@ -133,18 +173,30 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 		event.EndTime = sql.NullString{String: req.EndTime, Valid: true}
 	}
 
-	// Encode groups and channels as JSON arrays for storage.
-	groupsJSON, err := json.Marshal(req.Groups)
-	if err != nil {
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
+	// Encode groups, destinations, and channels as JSON for storage.
+	var groupsJSON sql.NullString
+	if len(req.Groups) > 0 {
+		b, err := json.Marshal(req.Groups)
+		if err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		groupsJSON = sql.NullString{String: string(b), Valid: true}
+	}
+	var destinationsJSON sql.NullString
+	if len(req.Destinations) > 0 {
+		b, err := json.Marshal(req.Destinations)
+		if err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		destinationsJSON = sql.NullString{String: string(b), Valid: true}
 	}
 	channelsJSON, err := json.Marshal(req.Channels)
 	if err != nil {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
-
 	var emailVarsJSON sql.NullString
 	if len(req.EmailVars) > 0 {
 		b, err := json.Marshal(req.EmailVars)
@@ -159,7 +211,8 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 	notif, err := s.q.InsertNotification(ctx, db.InsertNotificationParams{
 		NotificationID: notificationID,
 		EventID:        event.EventID,
-		Groups:         string(groupsJSON),
+		Groups:         groupsJSON,
+		Destinations:   destinationsJSON,
 		Channels:       string(channelsJSON),
 		Message:        req.Message,
 		MemberCount:    0,
@@ -189,6 +242,7 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 		NotificationID: notif.NotificationID,
 		EventID:        event.EventID,
 		Groups:         req.Groups,
+		Destinations:   req.Destinations,
 		Channels:       req.Channels,
 		Message:        req.Message,
 		Status:         notif.Status,
