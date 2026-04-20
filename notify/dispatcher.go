@@ -110,11 +110,13 @@ func (d *Dispatcher) processJob(ctx context.Context, job Job) {
 	}
 
 	var channels []string
-	if err := json.Unmarshal([]byte(notif.Channels), &channels); err != nil {
-		d.logger.Error("dispatcher: parse channels failed",
-			"notification_id", job.NotificationID, "error", err)
-		d.setNotificationStatus(ctx, notif.NotificationID, "failed", "failed to parse channels: "+err.Error())
-		return
+	if notif.Channels.Valid && notif.Channels.String != "" {
+		if err := json.Unmarshal([]byte(notif.Channels.String), &channels); err != nil {
+			d.logger.Error("dispatcher: parse channels failed",
+				"notification_id", job.NotificationID, "error", err)
+			d.setNotificationStatus(ctx, notif.NotificationID, "failed", "failed to parse channels: "+err.Error())
+			return
+		}
 	}
 
 	var destinations []notifDestination

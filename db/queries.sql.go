@@ -518,7 +518,7 @@ type InsertNotificationParams struct {
 	EventID        string         `json:"event_id"`
 	Groups         sql.NullString `json:"groups"`
 	Destinations   sql.NullString `json:"destinations"`
-	Channels       string         `json:"channels"`
+	Channels       sql.NullString `json:"channels"`
 	Message        string         `json:"message"`
 	MemberCount    int64          `json:"member_count"`
 	EmailTemplate  sql.NullString `json:"email_template"`

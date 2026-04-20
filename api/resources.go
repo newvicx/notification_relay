@@ -26,13 +26,13 @@ type notificationResponse struct {
 	ID             int64         `json:"id"`
 	NotificationID string        `json:"notification_id"`
 	EventID        string        `json:"event_id"`
-	Groups         []string      `json:"groups,omitempty"`
-	Destinations   []Destination `json:"destinations,omitempty"`
+	Groups         []string      `json:"groups"`
+	Destinations   []Destination `json:"destinations"`
 	Channels       []string      `json:"channels"`
 	Message        string        `json:"message"`
 	MemberCount    int64         `json:"member_count"`
 	Status         string        `json:"status"`
-	ErrorMessage   *string       `json:"error_message,omitempty"`
+	ErrorMessage   string        `json:"error_message"`
 	CreatedAt      string        `json:"created_at"`
 }
 
@@ -50,25 +50,23 @@ func toEventResponse(e db.Event) eventResponse {
 }
 
 func toNotificationResponse(n db.Notification) (notificationResponse, error) {
-	var groups []string
+	groups := []string{}
 	if n.Groups.Valid && n.Groups.String != "" {
 		if err := json.Unmarshal([]byte(n.Groups.String), &groups); err != nil {
 			return notificationResponse{}, err
 		}
 	}
-	var destinations []Destination
+	destinations := []Destination{}
 	if n.Destinations.Valid && n.Destinations.String != "" {
 		if err := json.Unmarshal([]byte(n.Destinations.String), &destinations); err != nil {
 			return notificationResponse{}, err
 		}
 	}
-	var channels []string
-	if err := json.Unmarshal([]byte(n.Channels), &channels); err != nil {
-		return notificationResponse{}, err
-	}
-	var errMsg *string
-	if n.ErrorMessage.Valid {
-		errMsg = &n.ErrorMessage.String
+	channels := []string{}
+	if n.Channels.Valid && n.Channels.String != "" {
+		if err := json.Unmarshal([]byte(n.Channels.String), &channels); err != nil {
+			return notificationResponse{}, err
+		}
 	}
 	return notificationResponse{
 		ID:             n.ID,
@@ -80,7 +78,7 @@ func toNotificationResponse(n db.Notification) (notificationResponse, error) {
 		Message:        n.Message,
 		MemberCount:    n.MemberCount,
 		Status:         n.Status,
-		ErrorMessage:   errMsg,
+		ErrorMessage:   n.ErrorMessage.String,
 		CreatedAt:      n.CreatedAt,
 	}, nil
 }

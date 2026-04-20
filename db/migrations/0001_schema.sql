@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     event_id        TEXT NOT NULL,
     groups          TEXT,
     destinations    TEXT,
-    channels        TEXT NOT NULL DEFAULT '[]',
+    channels        TEXT,
     message         TEXT NOT NULL,
     status          TEXT NOT NULL DEFAULT 'pending',
     error_message   TEXT,

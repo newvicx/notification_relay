@@ -121,7 +121,7 @@ func insertNotification(t *testing.T, q *db.Queries, eventID string, groups, cha
 		NotificationID: uuidV7(),
 		EventID:        eventID,
 		Groups:         sql.NullString{String: string(groupsJSON), Valid: true},
-		Channels:       string(channelsJSON),
+		Channels:       sql.NullString{String: string(channelsJSON), Valid: len(channels) > 0},
 		Message:        message,
 		MemberCount:    0,
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
@@ -460,7 +460,6 @@ func insertNotificationWithDestinations(t *testing.T, q *db.Queries, eventID str
 	ctx := context.Background()
 
 	destsJSON, _ := json.Marshal(destinations)
-	channelsJSON, _ := json.Marshal([]string{})
 
 	if _, err := q.GetEventByEventID(ctx, eventID); errors.Is(err, sql.ErrNoRows) {
 		q.InsertEvent(ctx, db.InsertEventParams{
@@ -473,7 +472,6 @@ func insertNotificationWithDestinations(t *testing.T, q *db.Queries, eventID str
 		NotificationID: uuidV7(),
 		EventID:        eventID,
 		Destinations:   sql.NullString{String: string(destsJSON), Valid: true},
-		Channels:       string(channelsJSON),
 		Message:        message,
 		MemberCount:    0,
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
@@ -598,7 +596,7 @@ func TestDispatcher_MixedGroupAndDestination(t *testing.T) {
 		EventID:        "EVT-MIXED",
 		Groups:         sql.NullString{String: string(groupsJSON), Valid: true},
 		Destinations:   sql.NullString{String: string(destsJSON), Valid: true},
-		Channels:       string(channelsJSON),
+		Channels:       sql.NullString{String: string(channelsJSON), Valid: true},
 		Message:        "mixed alert",
 		MemberCount:    0,
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
@@ -704,7 +702,7 @@ func TestDispatcher_Email_ContextVars(t *testing.T) {
 		NotificationID: uuidV7(),
 		EventID:        event.EventID,
 		Groups:         sql.NullString{String: string(groupsJSON), Valid: true},
-		Channels:       string(channelsJSON),
+		Channels:       sql.NullString{String: string(channelsJSON), Valid: true},
 		Message:        "generator offline",
 		MemberCount:    0,
 		EmailTemplate:  sql.NullString{String: tmpl.TemplateName, Valid: true},

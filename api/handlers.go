@@ -51,9 +51,9 @@ type publishRequest struct {
 type publishResponse struct {
 	NotificationID string        `json:"notification_id"`
 	EventID        string        `json:"event_id"`
-	Groups         []string      `json:"groups,omitempty"`
-	Destinations   []Destination `json:"destinations,omitempty"`
-	Channels       []string      `json:"channels,omitempty"`
+	Groups         []string      `json:"groups"`
+	Destinations   []Destination `json:"destinations"`
+	Channels       []string      `json:"channels"`
 	Message        string        `json:"message"`
 	Status         string        `json:"status"`
 }
@@ -192,10 +192,14 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 		}
 		destinationsJSON = sql.NullString{String: string(b), Valid: true}
 	}
-	channelsJSON, err := json.Marshal(req.Channels)
-	if err != nil {
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
+	var channelsJSON sql.NullString
+	if len(req.Channels) > 0 {
+		b, err := json.Marshal(req.Channels)
+		if err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		channelsJSON = sql.NullString{String: string(b), Valid: true}
 	}
 	var emailVarsJSON sql.NullString
 	if len(req.EmailVars) > 0 {
@@ -213,7 +217,7 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 		EventID:        event.EventID,
 		Groups:         groupsJSON,
 		Destinations:   destinationsJSON,
-		Channels:       string(channelsJSON),
+		Channels:       channelsJSON,
 		Message:        req.Message,
 		MemberCount:    0,
 		EmailTemplate:  nullString(req.EmailTemplate),
@@ -236,14 +240,28 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Ensure nil slices serialize as [] not null.
+	groups := req.Groups
+	if groups == nil {
+		groups = []string{}
+	}
+	destinations := req.Destinations
+	if destinations == nil {
+		destinations = []Destination{}
+	}
+	channels := req.Channels
+	if channels == nil {
+		channels = []string{}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(publishResponse{
 		NotificationID: notif.NotificationID,
 		EventID:        event.EventID,
-		Groups:         req.Groups,
-		Destinations:   req.Destinations,
-		Channels:       req.Channels,
+		Groups:         groups,
+		Destinations:   destinations,
+		Channels:       channels,
 		Message:        req.Message,
 		Status:         notif.Status,
 	})
