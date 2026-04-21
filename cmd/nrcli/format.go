@@ -24,16 +24,23 @@ type Event struct {
 }
 
 type Notification struct {
-	ID             int64    `json:"id"`
-	NotificationID string   `json:"notification_id"`
-	EventID        string   `json:"event_id"`
-	Groups         []string `json:"groups"`
-	Channels       []string `json:"channels"`
-	Message        string   `json:"message"`
-	MemberCount    int64    `json:"member_count"`
-	Status         string   `json:"status"`
-	ErrorMessage   *string  `json:"error_message,omitempty"`
-	CreatedAt      string   `json:"created_at"`
+	ID             int64         `json:"id"`
+	NotificationID string        `json:"notification_id"`
+	EventID        string        `json:"event_id"`
+	Groups         []string      `json:"groups"`
+	Destinations   []Destination `json:"destinations"`
+	Channels       []string      `json:"channels"`
+	Message        string        `json:"message"`
+	MemberCount    int64         `json:"member_count"`
+	Status         string        `json:"status"`
+	ErrorMessage   string        `json:"error_message"`
+	CreatedAt      string        `json:"created_at"`
+}
+
+// Destination is a direct notification target for a single channel.
+type Destination struct {
+	Channel string `json:"channel"`
+	Target  string `json:"target"`
 }
 
 type Delivery struct {
@@ -42,6 +49,7 @@ type Delivery struct {
 	NotificationID string  `json:"notification_id"`
 	Group          string  `json:"group"`
 	Member         string  `json:"member"`
+	Destination    string  `json:"destination"`
 	Channel        string  `json:"channel"`
 	Status         string  `json:"status"`
 	EmailTemplate  *string `json:"email_template"`
@@ -83,12 +91,13 @@ type AuditLogEntry struct {
 }
 
 type PublishResponse struct {
-	NotificationID string   `json:"notification_id"`
-	EventID        string   `json:"event_id"`
-	Groups         []string `json:"groups"`
-	Channels       []string `json:"channels"`
-	Message        string   `json:"message"`
-	Status         string   `json:"status"`
+	NotificationID string        `json:"notification_id"`
+	EventID        string        `json:"event_id"`
+	Groups         []string      `json:"groups"`
+	Destinations   []Destination `json:"destinations"`
+	Channels       []string      `json:"channels"`
+	Message        string        `json:"message"`
+	Status         string        `json:"status"`
 }
 
 type SyncGroup struct {
@@ -145,6 +154,26 @@ func (m *kvMap) Set(v string) error {
 	return nil
 }
 
+// destinationSlice is a flag.Value for repeated --destination CHANNEL:TARGET flags.
+type destinationSlice []Destination
+
+func (d *destinationSlice) String() string {
+	parts := make([]string, len(*d))
+	for i, dest := range *d {
+		parts[i] = dest.Channel + ":" + dest.Target
+	}
+	return strings.Join(parts, ",")
+}
+
+func (d *destinationSlice) Set(v string) error {
+	idx := strings.IndexByte(v, ':')
+	if idx < 0 {
+		return fmt.Errorf("expected CHANNEL:TARGET, got %q", v)
+	}
+	*d = append(*d, Destination{Channel: v[:idx], Target: v[idx+1:]})
+	return nil
+}
+
 // newFlagSet creates a FlagSet that exits cleanly on --help.
 func newFlagSet(name string) *flag.FlagSet {
 	return flag.NewFlagSet(name, flag.ContinueOnError)
@@ -186,6 +215,27 @@ func ptrOrDash(s *string) string {
 		return "-"
 	}
 	return *s
+}
+
+// formatDestinations renders a []Destination as "channel:target, ..." or "" if empty.
+func formatDestinations(dests []Destination) string {
+	if len(dests) == 0 {
+		return ""
+	}
+	parts := make([]string, len(dests))
+	for i, d := range dests {
+		parts[i] = d.Channel + ":" + d.Target
+	}
+	return strings.Join(parts, ", ")
+}
+
+// deliveryRecipient returns the member username for group deliveries or the
+// destination target for direct deliveries.
+func deliveryRecipient(d Delivery) string {
+	if d.Member != "" {
+		return d.Member
+	}
+	return strOrDash(d.Destination)
 }
 
 func truncate(s string, n int) string {
@@ -265,13 +315,14 @@ func printNotificationList(notifs []Notification) {
 		return
 	}
 	w := newTabWriter()
-	fmt.Fprintln(w, "NOTIFICATION ID\tEVENT ID\tGROUPS\tCHANNELS\tMEMBERS\tSTATUS\tCREATED AT")
+	fmt.Fprintln(w, "NOTIFICATION ID\tEVENT ID\tGROUPS\tDESTINATIONS\tCHANNELS\tMEMBERS\tSTATUS\tCREATED AT")
 	for _, n := range notifs {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
 			n.NotificationID,
 			n.EventID,
-			strings.Join(n.Groups, ","),
-			strings.Join(n.Channels, ","),
+			strOrDash(strings.Join(n.Groups, ",")),
+			strOrDash(formatDestinations(n.Destinations)),
+			strOrDash(strings.Join(n.Channels, ",")),
 			n.MemberCount,
 			n.Status,
 			shortTime(n.CreatedAt),
@@ -285,12 +336,13 @@ func printNotificationDetail(n Notification) {
 	fmt.Fprintf(w, "ID:\t%d\n", n.ID)
 	fmt.Fprintf(w, "Notification ID:\t%s\n", n.NotificationID)
 	fmt.Fprintf(w, "Event ID:\t%s\n", n.EventID)
-	fmt.Fprintf(w, "Groups:\t%s\n", strings.Join(n.Groups, ", "))
-	fmt.Fprintf(w, "Channels:\t%s\n", strings.Join(n.Channels, ", "))
+	fmt.Fprintf(w, "Groups:\t%s\n", strOrDash(strings.Join(n.Groups, ", ")))
+	fmt.Fprintf(w, "Destinations:\t%s\n", strOrDash(formatDestinations(n.Destinations)))
+	fmt.Fprintf(w, "Channels:\t%s\n", strOrDash(strings.Join(n.Channels, ", ")))
 	fmt.Fprintf(w, "Message:\t%s\n", n.Message)
 	fmt.Fprintf(w, "Member Count:\t%d\n", n.MemberCount)
 	fmt.Fprintf(w, "Status:\t%s\n", n.Status)
-	fmt.Fprintf(w, "Error Message:\t%s\n", ptrOrDash(n.ErrorMessage))
+	fmt.Fprintf(w, "Error Message:\t%s\n", strOrDash(n.ErrorMessage))
 	fmt.Fprintf(w, "Created At:\t%s\n", n.CreatedAt)
 	w.Flush()
 }
@@ -299,8 +351,9 @@ func printPublishResponse(r PublishResponse) {
 	w := newTabWriter()
 	fmt.Fprintf(w, "Notification ID:\t%s\n", r.NotificationID)
 	fmt.Fprintf(w, "Event ID:\t%s\n", r.EventID)
-	fmt.Fprintf(w, "Groups:\t%s\n", strings.Join(r.Groups, ", "))
-	fmt.Fprintf(w, "Channels:\t%s\n", strings.Join(r.Channels, ", "))
+	fmt.Fprintf(w, "Groups:\t%s\n", strOrDash(strings.Join(r.Groups, ", ")))
+	fmt.Fprintf(w, "Destinations:\t%s\n", strOrDash(formatDestinations(r.Destinations)))
+	fmt.Fprintf(w, "Channels:\t%s\n", strOrDash(strings.Join(r.Channels, ", ")))
 	fmt.Fprintf(w, "Message:\t%s\n", r.Message)
 	fmt.Fprintf(w, "Status:\t%s\n", r.Status)
 	w.Flush()
@@ -314,11 +367,11 @@ func printDeliveryList(deliveries []Delivery) {
 		return
 	}
 	w := newTabWriter()
-	fmt.Fprintln(w, "DELIVERY ID\tMEMBER\tCHANNEL\tSTATUS\tATTEMPT\tSENT AT\tERROR")
+	fmt.Fprintln(w, "DELIVERY ID\tRECIPIENT\tCHANNEL\tSTATUS\tATTEMPT\tSENT AT\tERROR")
 	for _, d := range deliveries {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
 			d.DeliveryID,
-			d.Member,
+			deliveryRecipient(d),
 			d.Channel,
 			d.Status,
 			d.Attempt,
@@ -334,8 +387,9 @@ func printDeliveryDetail(d Delivery) {
 	fmt.Fprintf(w, "ID:\t%d\n", d.ID)
 	fmt.Fprintf(w, "Delivery ID:\t%s\n", d.DeliveryID)
 	fmt.Fprintf(w, "Notification ID:\t%s\n", d.NotificationID)
-	fmt.Fprintf(w, "Group:\t%s\n", d.Group)
-	fmt.Fprintf(w, "Member:\t%s\n", d.Member)
+	fmt.Fprintf(w, "Group:\t%s\n", strOrDash(d.Group))
+	fmt.Fprintf(w, "Member:\t%s\n", strOrDash(d.Member))
+	fmt.Fprintf(w, "Destination:\t%s\n", strOrDash(d.Destination))
 	fmt.Fprintf(w, "Channel:\t%s\n", d.Channel)
 	fmt.Fprintf(w, "Status:\t%s\n", d.Status)
 	fmt.Fprintf(w, "Attempt:\t%d\n", d.Attempt)
@@ -503,14 +557,15 @@ func printEventSummary(s EventSummary) {
 			n.NotificationID,
 			shortTime(n.CreatedAt),
 		)
-		fmt.Printf("    Groups:   %s\n", strings.Join(n.Groups, ", "))
-		fmt.Printf("    Channels: %s\n", strings.Join(n.Channels, ", "))
-		fmt.Printf("    Members:  %d\n", n.MemberCount)
-		fmt.Printf("    Status:   %s\n", n.Status)
-		if n.ErrorMessage != nil && *n.ErrorMessage != "" {
-			fmt.Printf("    Error:    %s\n", *n.ErrorMessage)
+		fmt.Printf("    Groups:       %s\n", strOrDash(strings.Join(n.Groups, ", ")))
+		fmt.Printf("    Destinations: %s\n", strOrDash(formatDestinations(n.Destinations)))
+		fmt.Printf("    Channels:     %s\n", strOrDash(strings.Join(n.Channels, ", ")))
+		fmt.Printf("    Members:      %d\n", n.MemberCount)
+		fmt.Printf("    Status:       %s\n", n.Status)
+		if n.ErrorMessage != "" {
+			fmt.Printf("    Error:        %s\n", n.ErrorMessage)
 		}
-		fmt.Printf("    Message:  %s\n", n.Message)
+		fmt.Printf("    Message:      %s\n", n.Message)
 
 		if len(nd.Deliveries) == 0 {
 			fmt.Println("    No deliveries.")
@@ -520,12 +575,12 @@ func printEventSummary(s EventSummary) {
 		// ── Deliveries table ──────────────────────────────────────────────────
 		fmt.Printf("\n    Deliveries (%d):\n", len(nd.Deliveries))
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "    DELIVERY ID\tMEMBER\tGROUP\tCHANNEL\tSTATUS\tATTEMPT\tSENT AT\tERROR")
+		fmt.Fprintln(w, "    DELIVERY ID\tRECIPIENT\tGROUP\tCHANNEL\tSTATUS\tATTEMPT\tSENT AT\tERROR")
 		for _, d := range nd.Deliveries {
 			fmt.Fprintf(w, "    %s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n",
 				d.DeliveryID,
-				d.Member,
-				d.Group,
+				deliveryRecipient(d),
+				strOrDash(d.Group),
 				d.Channel,
 				d.Status,
 				d.Attempt,

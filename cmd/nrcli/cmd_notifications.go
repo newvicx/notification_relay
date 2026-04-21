@@ -16,26 +16,41 @@ Subcommands:
 
 Flags for 'publish':
   --event-id ID           External event identifier (required)
-  --group GROUP           LDAP group to notify; repeat for multiple (required)
-  --channel CHANNEL       Delivery channel: sms, voice, email; repeat for multiple (required)
   --message MSG           Notification message (required)
+  --group GROUP           LDAP group to notify; repeat for multiple
+  --channel CHANNEL       Delivery channel for groups: sms, voice, email; repeat for multiple
+                          (required when --group is specified)
+  --destination CH:TARGET Direct delivery target as CHANNEL:TARGET; repeat for multiple
+                          e.g. --destination sms:+12125551234
+                               --destination email:ops@example.com
   --event-name NAME       Event name (used when auto-creating the event)
   --event-severity SEV    Event severity
   --event-url URL         Event URL
   --event-description D   Event description
   --start-time TIME       Event start time (RFC3339; default: now)
   --end-time TIME         Event end time (RFC3339); marks the event as ended
-  --email-template TMPL   Email template name (required when channel includes email)
+  --email-template TMPL   Email template name (required when any channel is email)
   --email-var K=V         Template variable; repeat for multiple (e.g. --email-var host=web-01)
 
+At least one --group or --destination must be provided.
+
 Examples:
+  # Notify an LDAP group
   nrcli notifications publish \
     --event-id alert-disk-01 \
     --group grp-oncall \
     --channel sms --channel email \
     --message "Disk usage above 90% on web-01" \
     --email-template alert-standard \
-    --email-var host=web-01 --email-var threshold=90%
+    --email-var host=web-01
+
+  # Notify a direct phone number and email address
+  nrcli notifications publish \
+    --event-id alert-disk-01 \
+    --destination sms:+12125551234 \
+    --destination email:ops@example.com \
+    --message "Disk usage above 90% on web-01" \
+    --email-template alert-standard
 `
 
 func runNotifications(cfg *Config, args []string) {
@@ -72,9 +87,11 @@ func runNotificationsPublish(cfg *Config, args []string) {
 
 	var groups stringSlice
 	var channels stringSlice
+	var destinations destinationSlice
 	var emailVars kvMap
 	fs.Var(&groups, "group", "LDAP group to notify (repeat for multiple)")
-	fs.Var(&channels, "channel", "delivery channel: sms, voice, email (repeat for multiple)")
+	fs.Var(&channels, "channel", "delivery channel for groups: sms, voice, email (repeat for multiple)")
+	fs.Var(&destinations, "destination", "direct delivery target as CHANNEL:TARGET (repeat for multiple)")
 	fs.Var(&emailVars, "email-var", "template variable as KEY=VALUE (repeat for multiple)")
 
 	fs.Usage = func() { fmt.Fprint(os.Stderr, notificationsUsage) }
@@ -83,11 +100,11 @@ func runNotificationsPublish(cfg *Config, args []string) {
 	if *eventID == "" {
 		dief("--event-id is required")
 	}
-	if len(groups) == 0 {
-		dief("at least one --group is required")
+	if len(groups) == 0 && len(destinations) == 0 {
+		dief("at least one --group or --destination is required")
 	}
-	if len(channels) == 0 {
-		dief("at least one --channel is required")
+	if len(groups) > 0 && len(channels) == 0 {
+		dief("--channel is required when --group is specified")
 	}
 	if *message == "" {
 		dief("--message is required")
@@ -95,9 +112,16 @@ func runNotificationsPublish(cfg *Config, args []string) {
 
 	req := map[string]interface{}{
 		"event_id": *eventID,
-		"groups":   []string(groups),
-		"channels": []string(channels),
 		"message":  *message,
+	}
+	if len(groups) > 0 {
+		req["groups"] = []string(groups)
+	}
+	if len(channels) > 0 {
+		req["channels"] = []string(channels)
+	}
+	if len(destinations) > 0 {
+		req["destinations"] = []Destination(destinations)
 	}
 	if *eventName != "" {
 		req["event_name"] = *eventName

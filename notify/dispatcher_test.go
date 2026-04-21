@@ -120,8 +120,8 @@ func insertNotification(t *testing.T, q *db.Queries, eventID string, groups, cha
 	n, err := q.InsertNotification(ctx, db.InsertNotificationParams{
 		NotificationID: uuidV7(),
 		EventID:        eventID,
-		Groups:         string(groupsJSON),
-		Channels:       string(channelsJSON),
+		Groups:         sql.NullString{String: string(groupsJSON), Valid: true},
+		Channels:       sql.NullString{String: string(channelsJSON), Valid: len(channels) > 0},
 		Message:        message,
 		MemberCount:    0,
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
@@ -368,7 +368,7 @@ func TestMergeEmailVars(t *testing.T) {
 		NotificationID: "notif-abc",
 		EventID:        "evt-xyz",
 		Message:        "disk nearly full",
-		Groups:         `["oncall","ops"]`,
+		Groups:         sql.NullString{String: `["oncall","ops"]`, Valid: true},
 		CreatedAt:      "2026-04-16T10:00:00Z",
 	}
 	event := db.Event{
@@ -435,7 +435,7 @@ func TestMergeEmailVars_UserKeyOverriddenByContext(t *testing.T) {
 		NotificationID: "notif-1",
 		EventID:        "evt-1",
 		Message:        "test",
-		Groups:         `[]`,
+		Groups:         sql.NullString{String: `[]`, Valid: true},
 		CreatedAt:      "2026-04-16T00:00:00Z",
 	}
 	event := db.Event{EventID: "evt-1", StartTime: "2026-04-16T00:00:00Z"}
@@ -451,6 +451,217 @@ func TestMergeEmailVars_UserKeyOverriddenByContext(t *testing.T) {
 	}
 	if _, ok := merged["event"].(map[string]any); !ok {
 		t.Error("\"event\" key should be the context map, not the user string")
+	}
+}
+
+// insertNotificationWithDestinations creates a notification with destinations (no groups).
+func insertNotificationWithDestinations(t *testing.T, q *db.Queries, eventID string, destinations []notifDestination, message string) db.Notification {
+	t.Helper()
+	ctx := context.Background()
+
+	destsJSON, _ := json.Marshal(destinations)
+
+	if _, err := q.GetEventByEventID(ctx, eventID); errors.Is(err, sql.ErrNoRows) {
+		q.InsertEvent(ctx, db.InsertEventParams{
+			EventID:   eventID,
+			StartTime: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+
+	n, err := q.InsertNotification(ctx, db.InsertNotificationParams{
+		NotificationID: uuidV7(),
+		EventID:        eventID,
+		Destinations:   sql.NullString{String: string(destsJSON), Valid: true},
+		Message:        message,
+		MemberCount:    0,
+		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		t.Fatalf("insert notification with destinations: %v", err)
+	}
+	return n
+}
+
+func TestDispatcher_DestinationSMS(t *testing.T) {
+	_, q := testutil.OpenDB(t)
+	notif := insertNotificationWithDestinations(t, q, "EVT-DEST-SMS",
+		[]notifDestination{{Channel: "sms", Target: "+15559990001"}},
+		"destination alert",
+	)
+
+	sms := &stubSMS{sid: "SM-DEST-001", status: "queued"}
+	d := NewDispatcher(defaultCfg(), q, make(chan Job, 1), sms, nil, nil, noopLogger())
+	d.processJob(context.Background(), Job{NotificationID: notif.NotificationID})
+
+	sms.mu.Lock()
+	defer sms.mu.Unlock()
+	if len(sms.calls) != 1 {
+		t.Fatalf("want 1 SMS call, got %d", len(sms.calls))
+	}
+	if sms.calls[0].to != "+15559990001" {
+		t.Errorf("want to=+15559990001, got %q", sms.calls[0].to)
+	}
+
+	deliveries, _ := q.ListDeliveriesByNotificationID(context.Background(), notif.NotificationID)
+	if len(deliveries) != 1 {
+		t.Fatalf("want 1 delivery row, got %d", len(deliveries))
+	}
+	del := deliveries[0]
+	if del.Group.Valid {
+		t.Errorf("want group=NULL for destination delivery, got %q", del.Group.String)
+	}
+	if del.Member.Valid {
+		t.Errorf("want member=NULL for destination delivery, got %q", del.Member.String)
+	}
+	if !del.Destination.Valid || del.Destination.String != "+15559990001" {
+		t.Errorf("want destination=+15559990001, got %v", del.Destination)
+	}
+	if del.Channel != "sms" {
+		t.Errorf("want channel=sms, got %q", del.Channel)
+	}
+	if del.Status != "queued" {
+		t.Errorf("want status=queued, got %q", del.Status)
+	}
+
+	updated, _ := q.GetNotificationByNotificationID(context.Background(), notif.NotificationID)
+	if updated.MemberCount != 1 {
+		t.Errorf("want member_count=1, got %d", updated.MemberCount)
+	}
+	if updated.Status != "completed" {
+		t.Errorf("want status=completed, got %q", updated.Status)
+	}
+}
+
+func TestDispatcher_DestinationVoice(t *testing.T) {
+	_, q := testutil.OpenDB(t)
+	notif := insertNotificationWithDestinations(t, q, "EVT-DEST-VOICE",
+		[]notifDestination{{Channel: "voice", Target: "+15559990002"}},
+		"voice alert",
+	)
+
+	voice := &stubVoice{sid: "CA-DEST-001", status: "queued"}
+	d := NewDispatcher(defaultCfg(), q, make(chan Job, 1), nil, voice, nil, noopLogger())
+	d.processJob(context.Background(), Job{NotificationID: notif.NotificationID})
+
+	voice.mu.Lock()
+	defer voice.mu.Unlock()
+	if len(voice.calls) != 1 {
+		t.Fatalf("want 1 voice call, got %d", len(voice.calls))
+	}
+	if voice.calls[0].to != "+15559990002" {
+		t.Errorf("want to=+15559990002, got %q", voice.calls[0].to)
+	}
+
+	deliveries, _ := q.ListDeliveriesByNotificationID(context.Background(), notif.NotificationID)
+	if len(deliveries) != 1 {
+		t.Fatalf("want 1 delivery row, got %d", len(deliveries))
+	}
+	if !deliveries[0].Destination.Valid || deliveries[0].Destination.String != "+15559990002" {
+		t.Errorf("want destination=+15559990002, got %v", deliveries[0].Destination)
+	}
+}
+
+func TestDispatcher_DestinationNilProvider(t *testing.T) {
+	_, q := testutil.OpenDB(t)
+	notif := insertNotificationWithDestinations(t, q, "EVT-DEST-NIL",
+		[]notifDestination{{Channel: "sms", Target: "+15559990003"}},
+		"alert",
+	)
+
+	// nil sms provider — should not panic, 0 deliveries.
+	d := NewDispatcher(defaultCfg(), q, make(chan Job, 1), nil, nil, nil, noopLogger())
+	d.processJob(context.Background(), Job{NotificationID: notif.NotificationID})
+
+	deliveries, _ := q.ListDeliveriesByNotificationID(context.Background(), notif.NotificationID)
+	if len(deliveries) != 0 {
+		t.Errorf("want 0 deliveries when provider is nil, got %d", len(deliveries))
+	}
+}
+
+func TestDispatcher_MixedGroupAndDestination(t *testing.T) {
+	_, q := testutil.OpenDB(t)
+	ctx := context.Background()
+
+	// Ensure event exists.
+	if _, err := q.GetEventByEventID(ctx, "EVT-MIXED"); errors.Is(err, sql.ErrNoRows) {
+		q.InsertEvent(ctx, db.InsertEventParams{EventID: "EVT-MIXED", StartTime: time.Now().UTC().Format(time.RFC3339)})
+	}
+
+	destsJSON, _ := json.Marshal([]notifDestination{{Channel: "sms", Target: "+15559990004"}})
+	groupsJSON, _ := json.Marshal([]string{"grp-mixed"})
+	channelsJSON, _ := json.Marshal([]string{"sms"})
+
+	notif, err := q.InsertNotification(ctx, db.InsertNotificationParams{
+		NotificationID: uuidV7(),
+		EventID:        "EVT-MIXED",
+		Groups:         sql.NullString{String: string(groupsJSON), Valid: true},
+		Destinations:   sql.NullString{String: string(destsJSON), Valid: true},
+		Channels:       sql.NullString{String: string(channelsJSON), Valid: true},
+		Message:        "mixed alert",
+		MemberCount:    0,
+		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		t.Fatalf("insert notification: %v", err)
+	}
+	insertMember(t, q, "grp-mixed", "dave", "+15559990005", "")
+
+	sms := &stubSMS{sid: "SM-MIX", status: "queued"}
+	d := NewDispatcher(defaultCfg(), q, make(chan Job, 1), sms, nil, nil, noopLogger())
+	d.processJob(ctx, Job{NotificationID: notif.NotificationID})
+
+	sms.mu.Lock()
+	if len(sms.calls) != 2 {
+		t.Errorf("want 2 SMS calls (1 group + 1 destination), got %d", len(sms.calls))
+	}
+	sms.mu.Unlock()
+
+	deliveries, _ := q.ListDeliveriesByNotificationID(ctx, notif.NotificationID)
+	if len(deliveries) != 2 {
+		t.Fatalf("want 2 delivery rows, got %d", len(deliveries))
+	}
+
+	var groupDel, destDel *db.Delivery
+	for i := range deliveries {
+		if deliveries[i].Group.Valid {
+			groupDel = &deliveries[i]
+		} else {
+			destDel = &deliveries[i]
+		}
+	}
+	if groupDel == nil {
+		t.Error("want one group delivery row")
+	}
+	if destDel == nil {
+		t.Error("want one destination delivery row")
+	}
+
+	updated, _ := q.GetNotificationByNotificationID(ctx, notif.NotificationID)
+	if updated.MemberCount != 2 {
+		t.Errorf("want member_count=2 (1 member + 1 destination), got %d", updated.MemberCount)
+	}
+}
+
+func TestDispatcher_DestinationOnly_MemberCount(t *testing.T) {
+	_, q := testutil.OpenDB(t)
+	notif := insertNotificationWithDestinations(t, q, "EVT-DEST-COUNT",
+		[]notifDestination{
+			{Channel: "sms", Target: "+15559990010"},
+			{Channel: "sms", Target: "+15559990011"},
+		},
+		"count test",
+	)
+
+	sms := &stubSMS{sid: "SM-CNT", status: "queued"}
+	d := NewDispatcher(defaultCfg(), q, make(chan Job, 1), sms, nil, nil, noopLogger())
+	d.processJob(context.Background(), Job{NotificationID: notif.NotificationID})
+
+	updated, _ := q.GetNotificationByNotificationID(context.Background(), notif.NotificationID)
+	if updated.MemberCount != 2 {
+		t.Errorf("want member_count=2, got %d", updated.MemberCount)
+	}
+	if updated.Status != "completed" {
+		t.Errorf("want status=completed, got %q", updated.Status)
 	}
 }
 
@@ -490,8 +701,8 @@ func TestDispatcher_Email_ContextVars(t *testing.T) {
 	notif, err := q.InsertNotification(ctx, db.InsertNotificationParams{
 		NotificationID: uuidV7(),
 		EventID:        event.EventID,
-		Groups:         string(groupsJSON),
-		Channels:       string(channelsJSON),
+		Groups:         sql.NullString{String: string(groupsJSON), Valid: true},
+		Channels:       sql.NullString{String: string(channelsJSON), Valid: true},
 		Message:        "generator offline",
 		MemberCount:    0,
 		EmailTemplate:  sql.NullString{String: tmpl.TemplateName, Valid: true},
