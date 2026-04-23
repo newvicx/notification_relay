@@ -31,12 +31,6 @@ func (m *mockClient) Close() error {
 	return nil
 }
 
-func newSyncer(cfg config.LDAPConfig, client Client, conn interface {
-	BeginTx(context.Context, interface{ Isolation() int; ReadOnly() bool }) (interface{}, error)
-}, sqlDB interface{}) *Syncer {
-	return nil // placeholder — see newSyncerDirect
-}
-
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
