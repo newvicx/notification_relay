@@ -12,11 +12,11 @@ type auditLogResponse struct {
 	ID            int64  `json:"id"`
 	Timestamp     string `json:"timestamp"`
 	Username      string `json:"username"`
-	IPAddress     string `json:"ip_address,omitempty"`
+	IPAddress     string `json:"ip_address"`
 	Action        string `json:"action"`
-	ImpactedTable string `json:"impacted_table,omitempty"`
-	OldValues     string `json:"old_values,omitempty"`
-	NewValues     string `json:"new_values,omitempty"`
+	ImpactedTable string `json:"impacted_table"`
+	OldValues     string `json:"old_values"`
+	NewValues     string `json:"new_values"`
 }
 
 func toAuditLogResponse(a db.AuditLog) auditLogResponse {

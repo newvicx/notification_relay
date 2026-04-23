@@ -9,10 +9,10 @@ import (
 
 type groupMemberResponse struct {
 	Username    string `json:"username"`
-	DisplayName string `json:"display_name,omitempty"`
-	Email       string `json:"email,omitempty"`
-	Mobile      string `json:"mobile,omitempty"`
-	Work        string `json:"work,omitempty"`
+	DisplayName string `json:"display_name"`
+	Email       string `json:"email"`
+	Mobile      string `json:"mobile"`
+	Work        string `json:"work"`
 	SyncedAt    string `json:"synced_at"`
 }
 

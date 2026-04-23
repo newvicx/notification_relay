@@ -223,7 +223,7 @@ type templateResponse struct {
 	Subject      string   `json:"subject"`
 	Body         string   `json:"body"`
 	RequiredVars []string `json:"required_vars"`
-	Description  string   `json:"description,omitempty"`
+	Description  string   `json:"description"`
 }
 
 func toTemplateResponse(t db.EmailTemplate) templateResponse {

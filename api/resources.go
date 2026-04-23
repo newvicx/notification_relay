@@ -14,12 +14,12 @@ import (
 type eventResponse struct {
 	ID               int64  `json:"id"`
 	EventID          string `json:"event_id"`
-	EventURL         string `json:"event_url,omitempty"`
-	EventName        string `json:"event_name,omitempty"`
-	EventDescription string `json:"event_description,omitempty"`
-	EventSeverity    string `json:"event_severity,omitempty"`
+	EventURL         string `json:"event_url"`
+	EventName        string `json:"event_name"`
+	EventDescription string `json:"event_description"`
+	EventSeverity    string `json:"event_severity"`
 	StartTime        string `json:"start_time"`
-	EndTime          string `json:"end_time,omitempty"`
+	EndTime          string `json:"end_time"`
 }
 
 type notificationResponse struct {
@@ -34,6 +34,25 @@ type notificationResponse struct {
 	Status         string        `json:"status"`
 	ErrorMessage   string        `json:"error_message"`
 	CreatedAt      string        `json:"created_at"`
+}
+
+// TODO: Add TwilioSID field
+type deliveryResponse struct {
+	ID             int64          `json:"id"`
+	DeliveryID     string         `json:"delivery_id"`
+	NotificationID string         `json:"notification_id"`
+	Group          string         `json:"group"`
+	Member         string         `json:"member"`
+	Destination    string         `json:"destination"`
+	Channel        string         `json:"channel"`
+	Status         string         `json:"status"`
+	EmailTemplate  string         `json:"email_template"`
+	EmailVars      map[string]any `json:"email_vars"`
+	Attempt        int64          `json:"attempt"`
+	PollAttempts   int64          `json:"poll_attempts"`
+	ErrorMessage   string         `json:"error_message"`
+	SentAt         string         `json:"sent_at"`
+	CompletedAt    string         `json:"completed_at"`
 }
 
 func toEventResponse(e db.Event) eventResponse {
@@ -83,6 +102,35 @@ func toNotificationResponse(n db.Notification) (notificationResponse, error) {
 	}, nil
 }
 
+func toDeliveryResponse(d db.Delivery) (deliveryResponse, error) {
+	emailVars := map[string]any{}
+	if d.EmailVars.Valid {
+		if err := json.Unmarshal([]byte(d.EmailVars.String), &emailVars); err != nil {
+			return deliveryResponse{}, err
+		}
+	}
+
+	return deliveryResponse{
+		ID:             d.ID,
+		DeliveryID:     d.DeliveryID,
+		NotificationID: d.NotificationID,
+		Group:          d.Group.String,
+		Member:         d.Member.String,
+		Destination:    d.Destination.String,
+		Channel:        d.Channel,
+		Status:         d.Status,
+		EmailTemplate:  d.EmailTemplate.String,
+		EmailVars:      emailVars,
+		Attempt:        d.Attempt,
+		PollAttempts:   d.PollAttempts,
+		ErrorMessage:   d.ErrorMessage.String,
+		SentAt:         d.SentAt,
+		CompletedAt:    d.CompletedAt.String,
+	}, nil
+}
+
+// TODO: Add update endpoint for events. Attach modified by and modified date to event
+
 // handleCreateEvent creates a new event. Returns 409 if the event_id already exists.
 func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -97,6 +145,7 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
+	// TODO: Generate a UUID7 event ID. Dont require an event ID
 	if req.EventID == "" {
 		http.Error(w, "event_id is required", http.StatusBadRequest)
 		return
@@ -118,6 +167,7 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	if startTime == "" {
 		startTime = time.Now().UTC().Format(time.RFC3339)
 	}
+	// TODO: Add parsing for various time formats to standardize to time.Time then format to RFC3339
 
 	event, err := s.q.InsertEvent(ctx, db.InsertEventParams{
 		EventID:          req.EventID,
@@ -143,6 +193,8 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 // handleListEvents returns a paginated list of events ordered by start_time DESC.
 // Query params: limit (default 50, max 200), offset (default 0).
 func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
+	// TODO: Add time based query for events on start time and end time
+	// TODO: Add username query for events
 	limit := int64(50)
 	offset := int64(0)
 
@@ -343,12 +395,21 @@ func (s *Server) handleListNotificationDeliveries(w http.ResponseWriter, r *http
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
-	if deliveries == nil {
-		deliveries = []db.Delivery{}
+
+	resp := make([]deliveryResponse, 0, len(deliveries))
+	for _, d := range deliveries {
+		dr, err := toDeliveryResponse(d)
+		if err != nil {
+			s.logger.Error("list notification deliveries: decode failed",
+				"delivery_id", d.DeliveryID, "error", err)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		resp = append(resp, dr)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(deliveries)
+	json.NewEncoder(w).Encode(resp)
 }
 
 // handleGetDelivery returns a single delivery by delivery_id.
@@ -366,6 +427,13 @@ func (s *Server) handleGetDelivery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	dr, err := toDeliveryResponse(delivery)
+	if err != nil {
+		s.logger.Error("get delivery: decode failed", "delivery_id", deliveryID, "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(delivery)
+	json.NewEncoder(w).Encode(dr)
 }
