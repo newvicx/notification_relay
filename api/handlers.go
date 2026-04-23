@@ -33,19 +33,19 @@ type Destination struct {
 }
 
 type publishRequest struct {
-	EventID          string            `json:"event_id"`
-	EventURL         string            `json:"event_url"`
-	EventName        string            `json:"event_name"`
-	EventDescription string            `json:"event_description"`
-	EventSeverity    string            `json:"event_severity"`
-	StartTime        string            `json:"start_time"`
-	EndTime          string            `json:"end_time"`
-	Groups           []string          `json:"groups"`
-	Destinations     []Destination     `json:"destinations"`
-	Channels         []string          `json:"channels"`
-	Message          string            `json:"message"`
-	EmailTemplate    string            `json:"email_template"`
-	EmailVars        map[string]string `json:"email_vars"`
+	EventID          string         `json:"event_id"`
+	EventURL         string         `json:"event_url"`
+	EventName        string         `json:"event_name"`
+	EventDescription string         `json:"event_description"`
+	EventSeverity    string         `json:"event_severity"`
+	StartTime        string         `json:"start_time"`
+	EndTime          string         `json:"end_time"`
+	Groups           []string       `json:"groups"`
+	Destinations     []Destination  `json:"destinations"`
+	Channels         []string       `json:"channels"`
+	Message          string         `json:"message"`
+	EmailTemplate    string         `json:"email_template"`
+	EmailVars        map[string]any `json:"email_vars"`
 }
 
 type publishResponse struct {
@@ -69,6 +69,7 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Validate required fields.
+	// TODO: Generate a UUID7 event ID. Dont require an event ID in the publish request
 	if req.EventID == "" {
 		http.Error(w, "event_id is required", http.StatusBadRequest)
 		return
@@ -145,6 +146,7 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 		if startTime == "" {
 			startTime = time.Now().UTC().Format(time.RFC3339)
 		}
+		// TODO: Add parsing for various time formats to standardize to time.Time then format to RFC3339
 		event, err = s.q.InsertEvent(ctx, db.InsertEventParams{
 			EventID:          req.EventID,
 			EventUrl:         nullString(req.EventURL),
@@ -158,10 +160,12 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
+		// TODO: Add audit log for start event
 	}
 
 	// Mark the event as ended if end_time was supplied and not already set.
 	if req.EndTime != "" && (!event.EndTime.Valid || event.EndTime.String == "") {
+		// TODO: Add parsing for various time formats to standardize to time.Time then format to RFC3339
 		if err := s.q.UpdateEventEndTime(ctx, db.UpdateEventEndTimeParams{
 			EndTime: sql.NullString{String: req.EndTime, Valid: true},
 			EventID: event.EventID,
@@ -170,6 +174,7 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
+		// TODO: Audit log for end event
 		event.EndTime = sql.NullString{String: req.EndTime, Valid: true}
 	}
 
@@ -230,6 +235,7 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+	// TODO: Audit log for notification
 
 	// Enqueue the job non-blocking; reject if the queue is full.
 	select {
@@ -289,4 +295,3 @@ func newUUIDV7() string {
 func nullString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: s != ""}
 }
-

@@ -13,14 +13,14 @@ import (
 // ── API response types ────────────────────────────────────────────────────────
 
 type Event struct {
-	ID               int64   `json:"id"`
-	EventID          string  `json:"event_id"`
-	EventURL         string  `json:"event_url"`
-	EventName        string  `json:"event_name"`
-	EventDescription string  `json:"event_description"`
-	EventSeverity    string  `json:"event_severity"`
-	StartTime        string  `json:"start_time"`
-	EndTime          *string `json:"end_time"`
+	ID               int64  `json:"id"`
+	EventID          string `json:"event_id"`
+	EventURL         string `json:"event_url"`
+	EventName        string `json:"event_name"`
+	EventDescription string `json:"event_description"`
+	EventSeverity    string `json:"event_severity"`
+	StartTime        string `json:"start_time"`
+	EndTime          string `json:"end_time"`
 }
 
 type Notification struct {
@@ -43,22 +43,23 @@ type Destination struct {
 	Target  string `json:"target"`
 }
 
+// TODO: Add TwilioSID field
 type Delivery struct {
-	ID             int64   `json:"id"`
-	DeliveryID     string  `json:"delivery_id"`
-	NotificationID string  `json:"notification_id"`
-	Group          string  `json:"group"`
-	Member         string  `json:"member"`
-	Destination    string  `json:"destination"`
-	Channel        string  `json:"channel"`
-	Status         string  `json:"status"`
-	EmailTemplate  *string `json:"email_template"`
-	EmailVars      *string `json:"email_vars"`
-	Attempt        int64   `json:"attempt"`
-	PollAttempts   int64   `json:"poll_attempts"`
-	ErrorMessage   *string `json:"error_message"`
-	SentAt         string  `json:"sent_at"`
-	CompletedAt    *string `json:"completed_at"`
+	ID             int64          `json:"id"`
+	DeliveryID     string         `json:"delivery_id"`
+	NotificationID string         `json:"notification_id"`
+	Group          string         `json:"group"`
+	Member         string         `json:"member"`
+	Destination    string         `json:"destination"`
+	Channel        string         `json:"channel"`
+	Status         string         `json:"status"`
+	EmailTemplate  string         `json:"email_template"`
+	EmailVars      map[string]any `json:"email_vars"`
+	Attempt        int64          `json:"attempt"`
+	PollAttempts   int64          `json:"poll_attempts"`
+	ErrorMessage   string         `json:"error_message"`
+	SentAt         string         `json:"sent_at"`
+	CompletedAt    string         `json:"completed_at"`
 }
 
 type GroupMember struct {
@@ -109,7 +110,7 @@ type SyncGroup struct {
 
 // EventSummary is the joined structure returned by `events summary`.
 type EventSummary struct {
-	Event         Event                       `json:"event"`
+	Event         Event                        `json:"event"`
 	Notifications []NotificationWithDeliveries `json:"notifications"`
 }
 
@@ -196,7 +197,7 @@ func die(err error) {
 	os.Exit(1)
 }
 
-func dief(format string, args ...interface{}) {
+func dief(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "error: "+format+"\n", args...)
 	os.Exit(1)
 }
@@ -288,7 +289,7 @@ func printEventList(events []Event) {
 			strOrDash(e.EventSeverity),
 			strOrDash(truncate(e.EventName, 40)),
 			shortTime(e.StartTime),
-			ptrOrDash(e.EndTime),
+			strOrDash(e.EndTime),
 		)
 	}
 	w.Flush()
@@ -303,7 +304,7 @@ func printEventDetail(e Event) {
 	fmt.Fprintf(w, "URL:\t%s\n", strOrDash(e.EventURL))
 	fmt.Fprintf(w, "Description:\t%s\n", strOrDash(e.EventDescription))
 	fmt.Fprintf(w, "Start Time:\t%s\n", e.StartTime)
-	fmt.Fprintf(w, "End Time:\t%s\n", ptrOrDash(e.EndTime))
+	fmt.Fprintf(w, "End Time:\t%s\n", strOrDash(e.EndTime))
 	w.Flush()
 }
 
@@ -376,13 +377,17 @@ func printDeliveryList(deliveries []Delivery) {
 			d.Status,
 			d.Attempt,
 			shortTime(d.SentAt),
-			ptrOrDash(d.ErrorMessage),
+			strOrDash(d.ErrorMessage),
 		)
 	}
 	w.Flush()
 }
 
 func printDeliveryDetail(d Delivery) {
+	emailVars, err := json.Marshal(d.EmailVars)
+	if err != nil {
+		die(err)
+	}
 	w := newTabWriter()
 	fmt.Fprintf(w, "ID:\t%d\n", d.ID)
 	fmt.Fprintf(w, "Delivery ID:\t%s\n", d.DeliveryID)
@@ -394,11 +399,11 @@ func printDeliveryDetail(d Delivery) {
 	fmt.Fprintf(w, "Status:\t%s\n", d.Status)
 	fmt.Fprintf(w, "Attempt:\t%d\n", d.Attempt)
 	fmt.Fprintf(w, "Poll Attempts:\t%d\n", d.PollAttempts)
-	fmt.Fprintf(w, "Email Template:\t%s\n", ptrOrDash(d.EmailTemplate))
-	fmt.Fprintf(w, "Email Vars:\t%s\n", ptrOrDash(d.EmailVars))
-	fmt.Fprintf(w, "Error:\t%s\n", ptrOrDash(d.ErrorMessage))
+	fmt.Fprintf(w, "Email Template:\t%s\n", strOrDash(d.EmailTemplate))
+	fmt.Fprintf(w, "Email Vars:\t%s\n", strOrDash(string(emailVars)))
+	fmt.Fprintf(w, "Error:\t%s\n", strOrDash(d.ErrorMessage))
 	fmt.Fprintf(w, "Sent At:\t%s\n", d.SentAt)
-	fmt.Fprintf(w, "Completed At:\t%s\n", ptrOrDash(d.CompletedAt))
+	fmt.Fprintf(w, "Completed At:\t%s\n", strOrDash(d.CompletedAt))
 	w.Flush()
 }
 
@@ -524,7 +529,7 @@ func printEventSummary(s EventSummary) {
 
 	// ── Event header ──────────────────────────────────────────────────────────
 	status := "active"
-	if e.EndTime != nil && *e.EndTime != "" {
+	if e.EndTime != "" {
 		status = "resolved"
 	}
 	severity := strOrDash(e.EventSeverity)
@@ -540,8 +545,8 @@ func printEventSummary(s EventSummary) {
 		fmt.Printf("  URL:         %s\n", e.EventURL)
 	}
 	fmt.Printf("  Started:     %s\n", shortTime(e.StartTime))
-	if e.EndTime != nil && *e.EndTime != "" {
-		fmt.Printf("  Ended:       %s\n", shortTime(*e.EndTime))
+	if e.EndTime != "" {
+		fmt.Printf("  Ended:       %s\n", shortTime(e.EndTime))
 	}
 
 	if len(s.Notifications) == 0 {
@@ -585,7 +590,7 @@ func printEventSummary(s EventSummary) {
 				d.Status,
 				d.Attempt,
 				shortTime(d.SentAt),
-				ptrOrDash(d.ErrorMessage),
+				strOrDash(d.ErrorMessage),
 			)
 		}
 		w.Flush()
