@@ -261,15 +261,12 @@ func (d *Dispatcher) dispatchSMS(ctx context.Context, notif db.Notification, gro
 			"error", lastErr)
 	}
 
-	// TODO: Dont overwrite the UUID7 delivery ID with the twilio SID. Just add another field to the delivery for twilio SID
-	deliveryID := sid
 	if lastErr != nil {
-		deliveryID = uuidV7()
 		status = "failed"
 	}
 
 	delivery, err := d.q.InsertDelivery(ctx, db.InsertDeliveryParams{
-		DeliveryID:     deliveryID,
+		DeliveryID:     uuidV7(),
 		NotificationID: notif.NotificationID,
 		Group:          sql.NullString{String: group, Valid: true},
 		Member:         sql.NullString{String: member.Username, Valid: true},
@@ -277,6 +274,7 @@ func (d *Dispatcher) dispatchSMS(ctx context.Context, notif db.Notification, gro
 		Status:         status,
 		Attempt:        int64(finalAttempt),
 		SentAt:         time.Now().UTC().Format(time.RFC3339),
+		TwilioSid:      sql.NullString{String: sid, Valid: sid != ""},
 	})
 	if err != nil {
 		d.logger.Error("dispatcher: insert sms delivery failed",
@@ -323,15 +321,12 @@ func (d *Dispatcher) dispatchVoice(ctx context.Context, notif db.Notification, g
 			"error", lastErr)
 	}
 
-	// TODO: Dont overwrite the UUID7 delivery ID with the twilio SID. Just add another field to the delivery for twilio SID
-	deliveryID := sid
 	if lastErr != nil {
-		deliveryID = uuidV7()
 		status = "failed"
 	}
 
 	delivery, err := d.q.InsertDelivery(ctx, db.InsertDeliveryParams{
-		DeliveryID:     deliveryID,
+		DeliveryID:     uuidV7(),
 		NotificationID: notif.NotificationID,
 		Group:          sql.NullString{String: group, Valid: true},
 		Member:         sql.NullString{String: member.Username, Valid: true},
@@ -339,6 +334,7 @@ func (d *Dispatcher) dispatchVoice(ctx context.Context, notif db.Notification, g
 		Status:         status,
 		Attempt:        int64(finalAttempt),
 		SentAt:         time.Now().UTC().Format(time.RFC3339),
+		TwilioSid:      sql.NullString{String: sid, Valid: sid != ""},
 	})
 	if err != nil {
 		d.logger.Error("dispatcher: insert voice delivery failed",
@@ -504,21 +500,19 @@ func (d *Dispatcher) dispatchSMSToDestination(ctx context.Context, notif db.Noti
 			"error", lastErr)
 	}
 
-	// TODO: Dont overwrite the UUID7 delivery ID with the twilio SID. Just add another field to the delivery for twilio SID
-	deliveryID := sid
 	if lastErr != nil {
-		deliveryID = uuidV7()
 		status = "failed"
 	}
 
 	delivery, err := d.q.InsertDestinationDelivery(ctx, db.InsertDestinationDeliveryParams{
-		DeliveryID:     deliveryID,
+		DeliveryID:     uuidV7(),
 		NotificationID: notif.NotificationID,
 		Destination:    sql.NullString{String: target, Valid: true},
 		Channel:        "sms",
 		Status:         status,
 		Attempt:        int64(finalAttempt),
 		SentAt:         time.Now().UTC().Format(time.RFC3339),
+		TwilioSid:      sql.NullString{String: sid, Valid: sid != ""},
 	})
 	if err != nil {
 		d.logger.Error("dispatcher: insert sms destination delivery failed",
@@ -561,21 +555,19 @@ func (d *Dispatcher) dispatchVoiceToDestination(ctx context.Context, notif db.No
 			"error", lastErr)
 	}
 
-	// TODO: Dont overwrite the UUID7 delivery ID with the twilio SID. Just add another field to the delivery for twilio SID
-	deliveryID := sid
 	if lastErr != nil {
-		deliveryID = uuidV7()
 		status = "failed"
 	}
 
 	delivery, err := d.q.InsertDestinationDelivery(ctx, db.InsertDestinationDeliveryParams{
-		DeliveryID:     deliveryID,
+		DeliveryID:     uuidV7(),
 		NotificationID: notif.NotificationID,
 		Destination:    sql.NullString{String: target, Valid: true},
 		Channel:        "voice",
 		Status:         status,
 		Attempt:        int64(finalAttempt),
 		SentAt:         time.Now().UTC().Format(time.RFC3339),
+		TwilioSid:      sql.NullString{String: sid, Valid: sid != ""},
 	})
 	if err != nil {
 		d.logger.Error("dispatcher: insert voice destination delivery failed",

@@ -43,7 +43,6 @@ type Destination struct {
 	Target  string `json:"target"`
 }
 
-// TODO: Add TwilioSID field
 type Delivery struct {
 	ID             int64          `json:"id"`
 	DeliveryID     string         `json:"delivery_id"`
@@ -60,6 +59,7 @@ type Delivery struct {
 	ErrorMessage   string         `json:"error_message"`
 	SentAt         string         `json:"sent_at"`
 	CompletedAt    string         `json:"completed_at"`
+	TwilioSID      string         `json:"twilio_sid"`
 }
 
 type GroupMember struct {

@@ -86,19 +86,25 @@ type twilioStatusResponse struct {
 }
 
 // checkDelivery queries Twilio for the status of a single delivery and updates
-// the DB accordingly. The delivery_id is used as the Twilio call/message SID.
+// the DB accordingly.
 func (p *Poller) checkDelivery(ctx context.Context, d db.Delivery) {
+	if !d.TwilioSid.Valid || d.TwilioSid.String == "" {
+		p.logger.Warn("poller: delivery has no twilio_sid, skipping",
+			"delivery_id", d.DeliveryID, "channel", d.Channel)
+		return
+	}
+
 	var apiURL string
 	switch d.Channel {
 	case "voice":
 		apiURL = fmt.Sprintf(
 			"%s/2010-04-01/Accounts/%s/Calls/%s.json",
-			p.baseURL, p.cfg.AccountSID, d.DeliveryID, // TODO: Change this to d.TwilioSID on schema update
+			p.baseURL, p.cfg.AccountSID, d.TwilioSid.String,
 		)
 	default: // sms
 		apiURL = fmt.Sprintf(
 			"%s/2010-04-01/Accounts/%s/Messages/%s.json",
-			p.baseURL, p.cfg.AccountSID, d.DeliveryID, // TODO: Change this to d.TwilioSID on schema update
+			p.baseURL, p.cfg.AccountSID, d.TwilioSid.String,
 		)
 	}
 

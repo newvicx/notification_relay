@@ -35,6 +35,7 @@ type Delivery struct {
 	ErrorMessage   sql.NullString `json:"error_message"`
 	SentAt         string         `json:"sent_at"`
 	CompletedAt    sql.NullString `json:"completed_at"`
+	TwilioSid      sql.NullString `json:"twilio_sid"`
 }
 
 type EmailTemplate struct {

@@ -36,7 +36,6 @@ type notificationResponse struct {
 	CreatedAt      string        `json:"created_at"`
 }
 
-// TODO: Add TwilioSID field
 type deliveryResponse struct {
 	ID             int64          `json:"id"`
 	DeliveryID     string         `json:"delivery_id"`
@@ -53,6 +52,7 @@ type deliveryResponse struct {
 	ErrorMessage   string         `json:"error_message"`
 	SentAt         string         `json:"sent_at"`
 	CompletedAt    string         `json:"completed_at"`
+	TwilioSID      string         `json:"twilio_sid"`
 }
 
 func toEventResponse(e db.Event) eventResponse {
@@ -126,6 +126,7 @@ func toDeliveryResponse(d db.Delivery) (deliveryResponse, error) {
 		ErrorMessage:   d.ErrorMessage.String,
 		SentAt:         d.SentAt,
 		CompletedAt:    d.CompletedAt.String,
+		TwilioSID:      d.TwilioSid.String,
 	}, nil
 }
 

@@ -38,7 +38,7 @@ func (q *Queries) DeleteSyncGroup(ctx context.Context, groupName string) error {
 }
 
 const getDeliveryByDeliveryID = `-- name: GetDeliveryByDeliveryID :one
-SELECT id, delivery_id, notification_id, "group", member, destination, channel, status, email_template, email_vars, attempt, poll_attempts, error_message, sent_at, completed_at FROM deliveries WHERE delivery_id = ?
+SELECT id, delivery_id, notification_id, "group", member, destination, channel, status, email_template, email_vars, attempt, poll_attempts, error_message, sent_at, completed_at, twilio_sid FROM deliveries WHERE delivery_id = ?
 `
 
 func (q *Queries) GetDeliveryByDeliveryID(ctx context.Context, deliveryID string) (Delivery, error) {
@@ -60,6 +60,7 @@ func (q *Queries) GetDeliveryByDeliveryID(ctx context.Context, deliveryID string
 		&i.ErrorMessage,
 		&i.SentAt,
 		&i.CompletedAt,
+		&i.TwilioSid,
 	)
 	return i, err
 }
@@ -232,7 +233,7 @@ const incrementPollAttempts = `-- name: IncrementPollAttempts :one
 UPDATE deliveries
 SET poll_attempts = poll_attempts + 1
 WHERE delivery_id = ?
-RETURNING id, delivery_id, notification_id, "group", member, destination, channel, status, email_template, email_vars, attempt, poll_attempts, error_message, sent_at, completed_at
+RETURNING id, delivery_id, notification_id, "group", member, destination, channel, status, email_template, email_vars, attempt, poll_attempts, error_message, sent_at, completed_at, twilio_sid
 `
 
 // Atomically increments poll_attempts and returns the updated delivery row,
@@ -256,6 +257,7 @@ func (q *Queries) IncrementPollAttempts(ctx context.Context, deliveryID string) 
 		&i.ErrorMessage,
 		&i.SentAt,
 		&i.CompletedAt,
+		&i.TwilioSid,
 	)
 	return i, err
 }
@@ -292,9 +294,9 @@ func (q *Queries) InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) 
 
 const insertDelivery = `-- name: InsertDelivery :one
 
-INSERT INTO deliveries (delivery_id, notification_id, "group", member, channel, status, email_template, email_vars, attempt, sent_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, delivery_id, notification_id, "group", member, destination, channel, status, email_template, email_vars, attempt, poll_attempts, error_message, sent_at, completed_at
+INSERT INTO deliveries (delivery_id, notification_id, "group", member, channel, status, email_template, email_vars, attempt, sent_at, twilio_sid)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, delivery_id, notification_id, "group", member, destination, channel, status, email_template, email_vars, attempt, poll_attempts, error_message, sent_at, completed_at, twilio_sid
 `
 
 type InsertDeliveryParams struct {
@@ -308,6 +310,7 @@ type InsertDeliveryParams struct {
 	EmailVars      sql.NullString `json:"email_vars"`
 	Attempt        int64          `json:"attempt"`
 	SentAt         string         `json:"sent_at"`
+	TwilioSid      sql.NullString `json:"twilio_sid"`
 }
 
 // deliveries
@@ -323,6 +326,7 @@ func (q *Queries) InsertDelivery(ctx context.Context, arg InsertDeliveryParams) 
 		arg.EmailVars,
 		arg.Attempt,
 		arg.SentAt,
+		arg.TwilioSid,
 	)
 	var i Delivery
 	err := row.Scan(
@@ -341,14 +345,15 @@ func (q *Queries) InsertDelivery(ctx context.Context, arg InsertDeliveryParams) 
 		&i.ErrorMessage,
 		&i.SentAt,
 		&i.CompletedAt,
+		&i.TwilioSid,
 	)
 	return i, err
 }
 
 const insertDestinationDelivery = `-- name: InsertDestinationDelivery :one
-INSERT INTO deliveries (delivery_id, notification_id, destination, channel, status, email_template, email_vars, attempt, sent_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, delivery_id, notification_id, "group", member, destination, channel, status, email_template, email_vars, attempt, poll_attempts, error_message, sent_at, completed_at
+INSERT INTO deliveries (delivery_id, notification_id, destination, channel, status, email_template, email_vars, attempt, sent_at, twilio_sid)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, delivery_id, notification_id, "group", member, destination, channel, status, email_template, email_vars, attempt, poll_attempts, error_message, sent_at, completed_at, twilio_sid
 `
 
 type InsertDestinationDeliveryParams struct {
@@ -361,6 +366,7 @@ type InsertDestinationDeliveryParams struct {
 	EmailVars      sql.NullString `json:"email_vars"`
 	Attempt        int64          `json:"attempt"`
 	SentAt         string         `json:"sent_at"`
+	TwilioSid      sql.NullString `json:"twilio_sid"`
 }
 
 func (q *Queries) InsertDestinationDelivery(ctx context.Context, arg InsertDestinationDeliveryParams) (Delivery, error) {
@@ -374,6 +380,7 @@ func (q *Queries) InsertDestinationDelivery(ctx context.Context, arg InsertDesti
 		arg.EmailVars,
 		arg.Attempt,
 		arg.SentAt,
+		arg.TwilioSid,
 	)
 	var i Delivery
 	err := row.Scan(
@@ -392,6 +399,7 @@ func (q *Queries) InsertDestinationDelivery(ctx context.Context, arg InsertDesti
 		&i.ErrorMessage,
 		&i.SentAt,
 		&i.CompletedAt,
+		&i.TwilioSid,
 	)
 	return i, err
 }
@@ -638,7 +646,7 @@ func (q *Queries) ListAuditLogFiltered(ctx context.Context, arg ListAuditLogFilt
 }
 
 const listDeliveriesByNotificationID = `-- name: ListDeliveriesByNotificationID :many
-SELECT id, delivery_id, notification_id, "group", member, destination, channel, status, email_template, email_vars, attempt, poll_attempts, error_message, sent_at, completed_at FROM deliveries WHERE notification_id = ? ORDER BY sent_at DESC
+SELECT id, delivery_id, notification_id, "group", member, destination, channel, status, email_template, email_vars, attempt, poll_attempts, error_message, sent_at, completed_at, twilio_sid FROM deliveries WHERE notification_id = ? ORDER BY sent_at DESC
 `
 
 func (q *Queries) ListDeliveriesByNotificationID(ctx context.Context, notificationID string) ([]Delivery, error) {
@@ -666,6 +674,7 @@ func (q *Queries) ListDeliveriesByNotificationID(ctx context.Context, notificati
 			&i.ErrorMessage,
 			&i.SentAt,
 			&i.CompletedAt,
+			&i.TwilioSid,
 		); err != nil {
 			return nil, err
 		}
@@ -818,7 +827,7 @@ func (q *Queries) ListGroupMembers(ctx context.Context, groupName string) ([]Gro
 }
 
 const listInFlightSMSDeliveries = `-- name: ListInFlightSMSDeliveries :many
-SELECT id, delivery_id, notification_id, "group", member, destination, channel, status, email_template, email_vars, attempt, poll_attempts, error_message, sent_at, completed_at FROM deliveries
+SELECT id, delivery_id, notification_id, "group", member, destination, channel, status, email_template, email_vars, attempt, poll_attempts, error_message, sent_at, completed_at, twilio_sid FROM deliveries
 WHERE channel = 'sms'
   AND status IN ('accepted', 'scheduled', 'queued', 'sending', 'sent')
   AND status != 'poll_failed'
@@ -853,6 +862,7 @@ func (q *Queries) ListInFlightSMSDeliveries(ctx context.Context) ([]Delivery, er
 			&i.ErrorMessage,
 			&i.SentAt,
 			&i.CompletedAt,
+			&i.TwilioSid,
 		); err != nil {
 			return nil, err
 		}
@@ -868,7 +878,7 @@ func (q *Queries) ListInFlightSMSDeliveries(ctx context.Context) ([]Delivery, er
 }
 
 const listInFlightVoiceDeliveries = `-- name: ListInFlightVoiceDeliveries :many
-SELECT id, delivery_id, notification_id, "group", member, destination, channel, status, email_template, email_vars, attempt, poll_attempts, error_message, sent_at, completed_at FROM deliveries
+SELECT id, delivery_id, notification_id, "group", member, destination, channel, status, email_template, email_vars, attempt, poll_attempts, error_message, sent_at, completed_at, twilio_sid FROM deliveries
 WHERE channel = 'voice'
   AND status IN ('queued', 'ringing', 'in-progress')
   AND status != 'poll_failed'
@@ -901,6 +911,7 @@ func (q *Queries) ListInFlightVoiceDeliveries(ctx context.Context) ([]Delivery, 
 			&i.ErrorMessage,
 			&i.SentAt,
 			&i.CompletedAt,
+			&i.TwilioSid,
 		); err != nil {
 			return nil, err
 		}
