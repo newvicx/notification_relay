@@ -261,6 +261,7 @@ func (d *Dispatcher) dispatchSMS(ctx context.Context, notif db.Notification, gro
 			"error", lastErr)
 	}
 
+	// TODO: Dont overwrite the UUID7 delivery ID with the twilio SID. Just add another field to the delivery for twilio SID
 	deliveryID := sid
 	if lastErr != nil {
 		deliveryID = uuidV7()
@@ -322,6 +323,7 @@ func (d *Dispatcher) dispatchVoice(ctx context.Context, notif db.Notification, g
 			"error", lastErr)
 	}
 
+	// TODO: Dont overwrite the UUID7 delivery ID with the twilio SID. Just add another field to the delivery for twilio SID
 	deliveryID := sid
 	if lastErr != nil {
 		deliveryID = uuidV7()
@@ -502,6 +504,7 @@ func (d *Dispatcher) dispatchSMSToDestination(ctx context.Context, notif db.Noti
 			"error", lastErr)
 	}
 
+	// TODO: Dont overwrite the UUID7 delivery ID with the twilio SID. Just add another field to the delivery for twilio SID
 	deliveryID := sid
 	if lastErr != nil {
 		deliveryID = uuidV7()
@@ -558,6 +561,7 @@ func (d *Dispatcher) dispatchVoiceToDestination(ctx context.Context, notif db.No
 			"error", lastErr)
 	}
 
+	// TODO: Dont overwrite the UUID7 delivery ID with the twilio SID. Just add another field to the delivery for twilio SID
 	deliveryID := sid
 	if lastErr != nil {
 		deliveryID = uuidV7()

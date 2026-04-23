@@ -93,12 +93,12 @@ func (p *Poller) checkDelivery(ctx context.Context, d db.Delivery) {
 	case "voice":
 		apiURL = fmt.Sprintf(
 			"%s/2010-04-01/Accounts/%s/Calls/%s.json",
-			p.baseURL, p.cfg.AccountSID, d.DeliveryID,
+			p.baseURL, p.cfg.AccountSID, d.DeliveryID, // TODO: Change this to d.TwilioSID on schema update
 		)
 	default: // sms
 		apiURL = fmt.Sprintf(
 			"%s/2010-04-01/Accounts/%s/Messages/%s.json",
-			p.baseURL, p.cfg.AccountSID, d.DeliveryID,
+			p.baseURL, p.cfg.AccountSID, d.DeliveryID, // TODO: Change this to d.TwilioSID on schema update
 		)
 	}
 
