@@ -89,8 +89,18 @@ type twilioStatusResponse struct {
 // the DB accordingly.
 func (p *Poller) checkDelivery(ctx context.Context, d db.Delivery) {
 	if !d.TwilioSid.Valid || d.TwilioSid.String == "" {
-		p.logger.Warn("poller: delivery has no twilio_sid, skipping",
+		const msg = "delivery is in-flight but has no twilio_sid; this indicates a bug or direct DB modification"
+		p.logger.Error("poller: malformed delivery — missing twilio_sid",
 			"delivery_id", d.DeliveryID, "channel", d.Channel)
+		if err := p.q.UpdateDeliveryStatus(ctx, db.UpdateDeliveryStatusParams{
+			Status:       "malformed",
+			CompletedAt:  sql.NullString{String: time.Now().UTC().Format(time.RFC3339), Valid: true},
+			ErrorMessage: sql.NullString{String: msg, Valid: true},
+			DeliveryID:   d.DeliveryID,
+		}); err != nil {
+			p.logger.Error("poller: failed to mark delivery malformed",
+				"delivery_id", d.DeliveryID, "error", err)
+		}
 		return
 	}
 
