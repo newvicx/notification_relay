@@ -146,10 +146,8 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
-	// TODO: Generate a UUID7 event ID. Dont require an event ID
 	if req.EventID == "" {
-		http.Error(w, "event_id is required", http.StatusBadRequest)
-		return
+		req.EventID = newUUIDV7()
 	}
 
 	ctx := r.Context()
