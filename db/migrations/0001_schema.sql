@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS group_members (
     PRIMARY KEY (group_name, username)
 );
 
+-- TODO: Add created_by, modified_by, and modified_at fields
 CREATE TABLE IF NOT EXISTS events (
     id                INTEGER PRIMARY KEY,
     event_id          TEXT NOT NULL,
@@ -48,6 +49,7 @@ CREATE TABLE IF NOT EXISTS notifications (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_notification_id ON notifications (notification_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_event_id ON notifications (event_id);
 
+-- TODO: Add twilio_sid field
 CREATE TABLE IF NOT EXISTS deliveries (
     id              INTEGER PRIMARY KEY,
     delivery_id     TEXT NOT NULL,

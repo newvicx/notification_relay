@@ -49,6 +49,8 @@ UPDATE events SET end_time = ? WHERE event_id = ?;
 -- name: ListEvents :many
 SELECT * FROM events ORDER BY start_time DESC LIMIT ? OFFSET ?;
 
+-- TODO: Add UpdateEvent query
+
 -- notifications
 
 -- name: InsertNotification :one
