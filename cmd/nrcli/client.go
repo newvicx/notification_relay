@@ -46,7 +46,7 @@ func (e *APIError) Error() string {
 
 // doRaw executes the request and returns (statusCode, bodyBytes, error).
 // Responses with status >= 400 return an *APIError.
-func (c *Client) doRaw(method, path string, query url.Values, reqBody interface{}) (int, []byte, error) {
+func (c *Client) doRaw(method, path string, query url.Values, reqBody any) (int, []byte, error) {
 	var bodyReader io.Reader
 	if reqBody != nil {
 		data, err := json.Marshal(reqBody)
@@ -101,12 +101,12 @@ func (c *Client) Get(path string, query url.Values) ([]byte, error) {
 
 // Post performs a POST request with a JSON body and returns (statusCode, bodyBytes, error).
 // reqBody may be nil to send no body.
-func (c *Client) Post(path string, reqBody interface{}) (int, []byte, error) {
+func (c *Client) Post(path string, reqBody any) (int, []byte, error) {
 	return c.doRaw(http.MethodPost, path, nil, reqBody)
 }
 
 // Put performs a PUT request with a JSON body and returns the response body bytes.
-func (c *Client) Put(path string, reqBody interface{}) ([]byte, error) {
+func (c *Client) Put(path string, reqBody any) ([]byte, error) {
 	_, body, err := c.doRaw(http.MethodPut, path, nil, reqBody)
 	return body, err
 }

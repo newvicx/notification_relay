@@ -105,7 +105,7 @@ func runEventsCreate(cfg *Config, args []string) {
 		dief("--event-id is required")
 	}
 
-	req := map[string]interface{}{"event_id": *eventID}
+	req := map[string]any{"event_id": *eventID}
 	if *name != "" {
 		req["event_name"] = *name
 	}
@@ -175,9 +175,9 @@ func runEventsEnd(cfg *Config, args []string) {
 	}
 	eventID := fs.Arg(0)
 
-	var req interface{}
+	var req any
 	if *endTime != "" {
-		req = map[string]interface{}{"end_time": *endTime}
+		req = map[string]any{"end_time": *endTime}
 	}
 
 	_, body, err := NewClient(cfg).Post("/api/v1/events/"+url.PathEscape(eventID)+"/end", req)

@@ -121,7 +121,7 @@ func runTemplatesCreate(cfg *Config, args []string) {
 	}
 	bodyContent := resolveBody(*body, *bodyFile)
 
-	req := map[string]interface{}{
+	req := map[string]any{
 		"template_name": name,
 		"subject":       *subject,
 		"body":          bodyContent,
@@ -192,7 +192,7 @@ func runTemplatesUpdate(cfg *Config, args []string) {
 	}
 	bodyContent := resolveBody(*body, *bodyFile)
 
-	req := map[string]interface{}{
+	req := map[string]any{
 		"template_name": name,
 		"subject":       *subject,
 		"body":          bodyContent,

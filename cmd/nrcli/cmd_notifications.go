@@ -110,7 +110,7 @@ func runNotificationsPublish(cfg *Config, args []string) {
 		dief("--message is required")
 	}
 
-	req := map[string]interface{}{
+	req := map[string]any{
 		"event_id": *eventID,
 		"message":  *message,
 	}
