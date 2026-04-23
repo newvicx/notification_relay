@@ -98,7 +98,6 @@ SELECT * FROM deliveries WHERE notification_id = ? ORDER BY sent_at DESC;
 SELECT * FROM deliveries
 WHERE channel = 'voice'
   AND status IN ('queued', 'ringing', 'in-progress')
-  AND status != 'poll_failed'
 ORDER BY sent_at;
 
 -- name: ListInFlightSMSDeliveries :many
@@ -108,7 +107,6 @@ ORDER BY sent_at;
 SELECT * FROM deliveries
 WHERE channel = 'sms'
   AND status IN ('accepted', 'scheduled', 'queued', 'sending', 'sent')
-  AND status != 'poll_failed'
 ORDER BY sent_at;
 
 -- name: IncrementPollAttempts :one

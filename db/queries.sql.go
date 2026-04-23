@@ -830,7 +830,6 @@ const listInFlightSMSDeliveries = `-- name: ListInFlightSMSDeliveries :many
 SELECT id, delivery_id, notification_id, "group", member, destination, channel, status, email_template, email_vars, attempt, poll_attempts, error_message, sent_at, completed_at, twilio_sid FROM deliveries
 WHERE channel = 'sms'
   AND status IN ('accepted', 'scheduled', 'queued', 'sending', 'sent')
-  AND status != 'poll_failed'
 ORDER BY sent_at
 `
 
@@ -881,7 +880,6 @@ const listInFlightVoiceDeliveries = `-- name: ListInFlightVoiceDeliveries :many
 SELECT id, delivery_id, notification_id, "group", member, destination, channel, status, email_template, email_vars, attempt, poll_attempts, error_message, sent_at, completed_at, twilio_sid FROM deliveries
 WHERE channel = 'voice'
   AND status IN ('queued', 'ringing', 'in-progress')
-  AND status != 'poll_failed'
 ORDER BY sent_at
 `
 
