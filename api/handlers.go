@@ -69,10 +69,8 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Validate required fields.
-	// TODO: Generate a UUID7 event ID. Dont require an event ID in the publish request
 	if req.EventID == "" {
-		http.Error(w, "event_id is required", http.StatusBadRequest)
-		return
+		req.EventID = newUUIDV7()
 	}
 	if len(req.Groups) == 0 && len(req.Destinations) == 0 {
 		http.Error(w, "at least one group or destination is required", http.StatusBadRequest)
