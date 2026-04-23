@@ -158,12 +158,13 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		// TODO: Add audit log for start event
+		s.auditLogAction(r, "create_event", "events", "", marshalAuditJSON(event))
 	}
 
 	// Mark the event as ended if end_time was supplied and not already set.
 	if req.EndTime != "" && (!event.EndTime.Valid || event.EndTime.String == "") {
 		// TODO: Add parsing for various time formats to standardize to time.Time then format to RFC3339
+		oldEvent := event
 		if err := s.q.UpdateEventEndTime(ctx, db.UpdateEventEndTimeParams{
 			EndTime: sql.NullString{String: req.EndTime, Valid: true},
 			EventID: event.EventID,
@@ -172,8 +173,8 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		// TODO: Audit log for end event
 		event.EndTime = sql.NullString{String: req.EndTime, Valid: true}
+		s.auditLogAction(r, "end_event", "events", marshalAuditJSON(oldEvent), marshalAuditJSON(event))
 	}
 
 	// Encode groups, destinations, and channels as JSON for storage.
@@ -233,7 +234,7 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
-	// TODO: Audit log for notification
+	s.auditLogAction(r, "create_notification", "notifications", "", marshalAuditJSON(notif))
 
 	// Enqueue the job non-blocking; reject if the queue is full.
 	select {
