@@ -86,19 +86,35 @@ type twilioStatusResponse struct {
 }
 
 // checkDelivery queries Twilio for the status of a single delivery and updates
-// the DB accordingly. The delivery_id is used as the Twilio call/message SID.
+// the DB accordingly.
 func (p *Poller) checkDelivery(ctx context.Context, d db.Delivery) {
+	if !d.TwilioSid.Valid || d.TwilioSid.String == "" {
+		const msg = "delivery is in-flight but has no twilio_sid; this indicates a bug or direct DB modification"
+		p.logger.Error("poller: malformed delivery — missing twilio_sid",
+			"delivery_id", d.DeliveryID, "channel", d.Channel)
+		if err := p.q.UpdateDeliveryStatus(ctx, db.UpdateDeliveryStatusParams{
+			Status:       "malformed",
+			CompletedAt:  sql.NullString{String: time.Now().UTC().Format(time.RFC3339), Valid: true},
+			ErrorMessage: sql.NullString{String: msg, Valid: true},
+			DeliveryID:   d.DeliveryID,
+		}); err != nil {
+			p.logger.Error("poller: failed to mark delivery malformed",
+				"delivery_id", d.DeliveryID, "error", err)
+		}
+		return
+	}
+
 	var apiURL string
 	switch d.Channel {
 	case "voice":
 		apiURL = fmt.Sprintf(
 			"%s/2010-04-01/Accounts/%s/Calls/%s.json",
-			p.baseURL, p.cfg.AccountSID, d.DeliveryID, // TODO: Change this to d.TwilioSID on schema update
+			p.baseURL, p.cfg.AccountSID, d.TwilioSid.String,
 		)
 	default: // sms
 		apiURL = fmt.Sprintf(
 			"%s/2010-04-01/Accounts/%s/Messages/%s.json",
-			p.baseURL, p.cfg.AccountSID, d.DeliveryID, // TODO: Change this to d.TwilioSID on schema update
+			p.baseURL, p.cfg.AccountSID, d.TwilioSid.String,
 		)
 	}
 

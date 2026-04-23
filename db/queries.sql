@@ -78,13 +78,13 @@ UPDATE notifications SET status = ?, error_message = ? WHERE notification_id = ?
 -- deliveries
 
 -- name: InsertDelivery :one
-INSERT INTO deliveries (delivery_id, notification_id, "group", member, channel, status, email_template, email_vars, attempt, sent_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO deliveries (delivery_id, notification_id, "group", member, channel, status, email_template, email_vars, attempt, sent_at, twilio_sid)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: InsertDestinationDelivery :one
-INSERT INTO deliveries (delivery_id, notification_id, destination, channel, status, email_template, email_vars, attempt, sent_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO deliveries (delivery_id, notification_id, destination, channel, status, email_template, email_vars, attempt, sent_at, twilio_sid)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetDeliveryByDeliveryID :one
@@ -98,7 +98,6 @@ SELECT * FROM deliveries WHERE notification_id = ? ORDER BY sent_at DESC;
 SELECT * FROM deliveries
 WHERE channel = 'voice'
   AND status IN ('queued', 'ringing', 'in-progress')
-  AND status != 'poll_failed'
 ORDER BY sent_at;
 
 -- name: ListInFlightSMSDeliveries :many
@@ -108,7 +107,6 @@ ORDER BY sent_at;
 SELECT * FROM deliveries
 WHERE channel = 'sms'
   AND status IN ('accepted', 'scheduled', 'queued', 'sending', 'sent')
-  AND status != 'poll_failed'
 ORDER BY sent_at;
 
 -- name: IncrementPollAttempts :one
