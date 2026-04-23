@@ -183,7 +183,21 @@ func (t *TwilioVoice) Call(to, message string) (sid, status string, err error) {
 		"%s/2010-04-01/Accounts/%s/Calls.json",
 		t.baseURL, t.accountSID,
 	)
-	twiml := fmt.Sprintf("<Response><Say>%s</Say></Response>", message)
+	twiml := fmt.Sprintf(
+		`<Response>
+		<!-- Wait for 1 second -->
+		<Pause length="1" />
+		
+		<!-- Deliver the message -->
+		<Say>%s</Say>
+		
+		<!-- Wait for 1 second -->
+		<Pause length="1" />
+		
+		<!-- Deliver the message again -->
+		<Say>%s</Say>
+	</Response>`,
+		message, message)
 	form := url.Values{
 		"To":    {to},
 		"From":  {t.fromNumber},
