@@ -177,19 +177,22 @@ func TestRenderTemplate_SliceRange(t *testing.T) {
 }
 
 // Missing key returns an error when missingkey=error is set.
-func TestRenderTemplate_MissingKeyError(t *testing.T) {
-	vars := map[string]any{"present": "yes"}
-	_, _, err := RenderTemplate("Subject", "<p>{{.missing}}</p>", vars)
-	if err == nil {
-		t.Fatal("want error for missing key")
-	}
-}
+// 4/22/26: Test removed as we dont want to error on missing keys due
+// to the need for conditional rendering. We rely on people to include
+// required attributes
+// func TestRenderTemplate_MissingKeyError(t *testing.T) {
+// 	vars := map[string]any{"present": "yes"}
+// 	_, _, err := RenderTemplate("Subject", "<p>{{.missing}}</p>", vars)
+// 	if err == nil {
+// 		t.Fatal("want error for missing key")
+// 	}
+// }
 
 func TestContainsFieldRef(t *testing.T) {
 	cases := []struct {
-		src     string
-		name    string
-		want    bool
+		src  string
+		name string
+		want bool
 	}{
 		{"{{.foo}}", "foo", true},
 		{"{{.foo.bar}}", "foo", true},
