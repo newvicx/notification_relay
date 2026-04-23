@@ -45,7 +45,7 @@ func RenderTemplate(subject, body string, vars map[string]any) (string, string, 
 }
 
 func renderOne(name, src string, vars map[string]any) (string, error) {
-	tmpl, err := template.New(name).Option("missingkey=error").Parse(src)
+	tmpl, err := template.New(name).Option("missingkey=zero").Parse(src)
 	if err != nil {
 		return "", err
 	}
@@ -61,11 +61,15 @@ func renderOne(name, src string, vars map[string]any) (string, error) {
 // etc., but not a name that merely has varName as a prefix (e.g. {{.varNameExtra}}).
 func containsFieldRef(src, varName string) bool {
 	needle := "{{." + varName
+	altNeedle := "{{ ." + varName
 	s := src
 	for {
 		i := strings.Index(s, needle)
 		if i == -1 {
-			return false
+			i = strings.Index(s, altNeedle)
+			if i == -1 {
+				return false
+			}
 		}
 		rest := s[i+len(needle):]
 		if len(rest) > 0 {
