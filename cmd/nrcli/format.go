@@ -21,6 +21,10 @@ type Event struct {
 	EventSeverity    string `json:"event_severity"`
 	StartTime        string `json:"start_time"`
 	EndTime          string `json:"end_time"`
+	CreatedBy        string `json:"created_by"`
+	CreatedAt        string `json:"created_at"`
+	ModifiedBy       string `json:"modified_by"`
+	ModifiedAt       string `json:"modified_at"`
 }
 
 type Notification struct {
@@ -35,6 +39,7 @@ type Notification struct {
 	Status         string        `json:"status"`
 	ErrorMessage   string        `json:"error_message"`
 	CreatedAt      string        `json:"created_at"`
+	CreatedBy      string        `json:"created_by"`
 }
 
 // Destination is a direct notification target for a single channel.
@@ -305,6 +310,10 @@ func printEventDetail(e Event) {
 	fmt.Fprintf(w, "Description:\t%s\n", strOrDash(e.EventDescription))
 	fmt.Fprintf(w, "Start Time:\t%s\n", e.StartTime)
 	fmt.Fprintf(w, "End Time:\t%s\n", strOrDash(e.EndTime))
+	fmt.Fprintf(w, "Created By:\t%s\n", strOrDash(e.CreatedBy))
+	fmt.Fprintf(w, "Created At:\t%s\n", strOrDash(shortTime(e.CreatedAt)))
+	fmt.Fprintf(w, "Modified By:\t%s\n", strOrDash(e.ModifiedBy))
+	fmt.Fprintf(w, "Modified At:\t%s\n", strOrDash(shortTime(e.ModifiedAt)))
 	w.Flush()
 }
 
@@ -345,6 +354,7 @@ func printNotificationDetail(n Notification) {
 	fmt.Fprintf(w, "Status:\t%s\n", n.Status)
 	fmt.Fprintf(w, "Error Message:\t%s\n", strOrDash(n.ErrorMessage))
 	fmt.Fprintf(w, "Created At:\t%s\n", n.CreatedAt)
+	fmt.Fprintf(w, "Created By:\t%s\n", strOrDash(n.CreatedBy))
 	w.Flush()
 }
 

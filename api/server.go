@@ -55,6 +55,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		s.authenticate(s.requirePermissions(PermRead)(http.HandlerFunc(s.handleListEvents))))
 	mux.Handle("GET /api/v1/events/{event_id}",
 		s.authenticate(s.requirePermissions(PermRead)(http.HandlerFunc(s.handleGetEvent))))
+	mux.Handle("PATCH /api/v1/events/{event_id}",
+		s.authenticate(s.requirePermissions(PermPublish)(http.HandlerFunc(s.handleUpdateEvent))))
 	mux.Handle("POST /api/v1/events/{event_id}/end",
 		s.authenticate(s.requirePermissions(PermPublish)(http.HandlerFunc(s.handleEndEvent))))
 	mux.Handle("GET /api/v1/events/{event_id}/notifications",

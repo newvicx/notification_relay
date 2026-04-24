@@ -63,6 +63,7 @@ type Querier interface {
 	// e.g. "queue overflow: 30001"
 	UpdateDeliveryStatus(ctx context.Context, arg UpdateDeliveryStatusParams) error
 	UpdateEmailTemplate(ctx context.Context, arg UpdateEmailTemplateParams) error
+	UpdateEvent(ctx context.Context, arg UpdateEventParams) (Event, error)
 	UpdateEventEndTime(ctx context.Context, arg UpdateEventEndTimeParams) error
 	UpdateNotificationMemberCount(ctx context.Context, arg UpdateNotificationMemberCountParams) error
 	UpdateNotificationStatus(ctx context.Context, arg UpdateNotificationStatusParams) error

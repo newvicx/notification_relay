@@ -151,6 +151,11 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 				return
 			}
 		}
+		publishUser, _ := UserFromContext(ctx)
+		publishCreatedBy := ""
+		if publishUser != nil {
+			publishCreatedBy = publishUser.Username
+		}
 		event, err = s.q.InsertEvent(ctx, db.InsertEventParams{
 			EventID:          req.EventID,
 			EventUrl:         nullString(req.EventURL),
@@ -158,6 +163,8 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 			EventDescription: nullString(req.EventDescription),
 			EventSeverity:    nullString(req.EventSeverity),
 			StartTime:        startTime,
+			CreatedBy:        nullString(publishCreatedBy),
+			CreatedAt:        time.Now().UTC().Format(time.RFC3339),
 		})
 		if err != nil {
 			s.logger.Error("publish: insert event failed", "event_id", req.EventID, "error", err)
@@ -225,6 +232,11 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 		emailVarsJSON = sql.NullString{String: string(b), Valid: true}
 	}
 
+	notifUser, _ := UserFromContext(ctx)
+	notifCreatedBy := ""
+	if notifUser != nil {
+		notifCreatedBy = notifUser.Username
+	}
 	notificationID := newUUIDV7()
 	notif, err := s.q.InsertNotification(ctx, db.InsertNotificationParams{
 		NotificationID: notificationID,
@@ -237,6 +249,7 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 		EmailTemplate:  nullString(req.EmailTemplate),
 		EmailVars:      emailVarsJSON,
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
+		CreatedBy:      nullString(notifCreatedBy),
 		Status:         "pending",
 	})
 	if err != nil {

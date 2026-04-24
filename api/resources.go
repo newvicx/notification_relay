@@ -20,6 +20,10 @@ type eventResponse struct {
 	EventSeverity    string `json:"event_severity"`
 	StartTime        string `json:"start_time"`
 	EndTime          string `json:"end_time"`
+	CreatedBy        string `json:"created_by"`
+	CreatedAt        string `json:"created_at"`
+	ModifiedBy       string `json:"modified_by"`
+	ModifiedAt       string `json:"modified_at"`
 }
 
 type notificationResponse struct {
@@ -34,6 +38,7 @@ type notificationResponse struct {
 	Status         string        `json:"status"`
 	ErrorMessage   string        `json:"error_message"`
 	CreatedAt      string        `json:"created_at"`
+	CreatedBy      string        `json:"created_by"`
 }
 
 type deliveryResponse struct {
@@ -65,6 +70,10 @@ func toEventResponse(e db.Event) eventResponse {
 		EventSeverity:    e.EventSeverity.String,
 		StartTime:        e.StartTime,
 		EndTime:          e.EndTime.String,
+		CreatedBy:        e.CreatedBy.String,
+		CreatedAt:        e.CreatedAt.String,
+		ModifiedBy:       e.ModifiedBy.String,
+		ModifiedAt:       e.ModifiedAt.String,
 	}
 }
 
@@ -99,6 +108,7 @@ func toNotificationResponse(n db.Notification) (notificationResponse, error) {
 		Status:         n.Status,
 		ErrorMessage:   n.ErrorMessage.String,
 		CreatedAt:      n.CreatedAt,
+		CreatedBy:      n.CreatedBy.String,
 	}, nil
 }
 
@@ -129,8 +139,6 @@ func toDeliveryResponse(d db.Delivery) (deliveryResponse, error) {
 		TwilioSID:      d.TwilioSid.String,
 	}, nil
 }
-
-// TODO: Add update endpoint for events. Attach modified by and modified date to event
 
 // handleCreateEvent creates a new event. Returns 409 if the event_id already exists.
 func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
@@ -174,6 +182,12 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	user, _ := UserFromContext(ctx)
+	createdBy := ""
+	if user != nil {
+		createdBy = user.Username
+	}
+
 	event, err := s.q.InsertEvent(ctx, db.InsertEventParams{
 		EventID:          req.EventID,
 		EventUrl:         nullString(req.EventURL),
@@ -181,6 +195,8 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		EventDescription: nullString(req.EventDescription),
 		EventSeverity:    nullString(req.EventSeverity),
 		StartTime:        startTime,
+		CreatedBy:        nullString(createdBy),
+		CreatedAt:        time.Now().UTC().Format(time.RFC3339),
 	})
 	if err != nil {
 		s.logger.Error("create event: insert failed", "event_id", req.EventID, "error", err)
@@ -193,6 +209,77 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(toEventResponse(event))
+}
+
+// handleUpdateEvent updates mutable fields on an existing event.
+func (s *Server) handleUpdateEvent(w http.ResponseWriter, r *http.Request) {
+	eventID := r.PathValue("event_id")
+
+	oldEvent, err := s.q.GetEventByEventID(r.Context(), eventID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "event not found", http.StatusNotFound)
+			return
+		}
+		s.logger.Error("update event: get failed", "event_id", eventID, "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	var req struct {
+		EventURL         *string `json:"event_url"`
+		EventName        *string `json:"event_name"`
+		EventDescription *string `json:"event_description"`
+		EventSeverity    *string `json:"event_severity"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	// Merge: use existing value for any field not provided in the request.
+	eventURL := oldEvent.EventUrl.String
+	if req.EventURL != nil {
+		eventURL = *req.EventURL
+	}
+	eventName := oldEvent.EventName.String
+	if req.EventName != nil {
+		eventName = *req.EventName
+	}
+	eventDescription := oldEvent.EventDescription.String
+	if req.EventDescription != nil {
+		eventDescription = *req.EventDescription
+	}
+	eventSeverity := oldEvent.EventSeverity.String
+	if req.EventSeverity != nil {
+		eventSeverity = *req.EventSeverity
+	}
+
+	user, _ := UserFromContext(r.Context())
+	modifiedBy := ""
+	if user != nil {
+		modifiedBy = user.Username
+	}
+
+	updated, err := s.q.UpdateEvent(r.Context(), db.UpdateEventParams{
+		EventUrl:         nullString(eventURL),
+		EventName:        nullString(eventName),
+		EventDescription: nullString(eventDescription),
+		EventSeverity:    nullString(eventSeverity),
+		ModifiedBy:       nullString(modifiedBy),
+		ModifiedAt:       nullString(time.Now().UTC().Format(time.RFC3339)),
+		EventID:          eventID,
+	})
+	if err != nil {
+		s.logger.Error("update event: update failed", "event_id", eventID, "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	s.auditLogAction(r, "update_event", "events", marshalAuditJSON(oldEvent), marshalAuditJSON(updated))
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(toEventResponse(updated))
 }
 
 // handleListEvents returns a paginated list of events ordered by start_time DESC.
