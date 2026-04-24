@@ -19,8 +19,10 @@ Subcommands:
   summary   EVENT_ID    Show full event detail with all notifications and deliveries
 
 Flags for 'list':
-  --limit N       Max records to return (1-200, default: 50)
-  --offset N      Records to skip (default: 0)
+  --limit N           Max records to return (1-200, default: 50)
+  --offset N          Records to skip (default: 0)
+  --start-from TIME   Lower bound on start_time (RFC3339, inclusive)
+  --start-to TIME     Upper bound on start_time (RFC3339, inclusive)
 
 Flags for 'create':
   --event-id ID         External event identifier (required)
@@ -63,12 +65,20 @@ func runEventsList(cfg *Config, args []string) {
 	fs := newFlagSet("events list")
 	limit := fs.Int("limit", 50, "max records to return")
 	offset := fs.Int("offset", 0, "records to skip")
+	startFrom := fs.String("start-from", "", "lower bound on start_time (RFC3339, inclusive)")
+	startTo := fs.String("start-to", "", "upper bound on start_time (RFC3339, inclusive)")
 	fs.Usage = func() { fmt.Fprint(os.Stderr, eventsUsage) }
 	parseFlags(fs, args)
 
 	q := url.Values{}
 	q.Set("limit", strconv.Itoa(*limit))
 	q.Set("offset", strconv.Itoa(*offset))
+	if *startFrom != "" {
+		q.Set("start_from", *startFrom)
+	}
+	if *startTo != "" {
+		q.Set("start_to", *startTo)
+	}
 
 	body, err := NewClient(cfg).Get("/api/v1/events", q)
 	if err != nil {
