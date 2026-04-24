@@ -4,8 +4,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"notification_relay/db"
@@ -71,7 +73,7 @@ func toEventResponse(e db.Event) eventResponse {
 		StartTime:        e.StartTime,
 		EndTime:          e.EndTime.String,
 		CreatedBy:        e.CreatedBy.String,
-		CreatedAt:        e.CreatedAt.String,
+		CreatedAt:        e.CreatedAt,
 		ModifiedBy:       e.ModifiedBy.String,
 		ModifiedAt:       e.ModifiedAt.String,
 	}
@@ -170,6 +172,22 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.EventSeverity != "" {
+		validSeverity := false
+		for _, severity := range s.eventSeverities {
+			if strings.ToLower(severity) == strings.ToLower(req.EventSeverity) {
+				req.EventSeverity = severity
+				validSeverity = true
+				break
+			}
+		}
+		if !validSeverity {
+			valid := strings.Join(s.eventSeverities, ",")
+			http.Error(w, fmt.Sprintf("unknown severity %q; valid values: %s", req.EventSeverity, valid), http.StatusBadRequest)
+			return
+		}
+	}
+
 	startTime := req.StartTime
 	if startTime == "" {
 		startTime = time.Now().UTC().Format(time.RFC3339)
@@ -235,6 +253,22 @@ func (s *Server) handleUpdateEvent(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
+	}
+
+	if req.EventSeverity != nil {
+		validSeverity := false
+		for _, severity := range s.eventSeverities {
+			if strings.ToLower(severity) == strings.ToLower(*req.EventSeverity) {
+				req.EventSeverity = &severity
+				validSeverity = true
+				break
+			}
+		}
+		if !validSeverity {
+			valid := strings.Join(s.eventSeverities, ",")
+			http.Error(w, fmt.Sprintf("unknown severity %q; valid values: %s", *req.EventSeverity, valid), http.StatusBadRequest)
+			return
+		}
 	}
 
 	// Merge: use existing value for any field not provided in the request.

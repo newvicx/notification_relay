@@ -13,25 +13,27 @@ import (
 
 // Server is the HTTP API server.
 type Server struct {
-	cfg           config.HTTPConfig
-	q             *db.Queries
-	queue         chan<- notify.Job
-	logger        *slog.Logger
-	srv           *http.Server
-	auth          ldap.Authenticator
-	groupVerifier ldap.GroupVerifier
-	roleConfig    map[string][]string
+	cfg             config.HTTPConfig
+	q               *db.Queries
+	queue           chan<- notify.Job
+	logger          *slog.Logger
+	srv             *http.Server
+	auth            ldap.Authenticator
+	groupVerifier   ldap.GroupVerifier
+	roleConfig      map[string][]string
+	eventSeverities []string
 }
 
-func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, logger *slog.Logger, auth ldap.Authenticator, groupVerifier ldap.GroupVerifier, roleConfig map[string][]string) *Server {
+func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, logger *slog.Logger, auth ldap.Authenticator, groupVerifier ldap.GroupVerifier, roleConfig map[string][]string, eventSeverities []string) *Server {
 	s := &Server{
-		cfg:           cfg,
-		q:             q,
-		queue:         queue,
-		logger:        logger,
-		auth:          auth,
-		groupVerifier: groupVerifier,
-		roleConfig:    roleConfig,
+		cfg:             cfg,
+		q:               q,
+		queue:           queue,
+		logger:          logger,
+		auth:            auth,
+		groupVerifier:   groupVerifier,
+		roleConfig:      roleConfig,
+		eventSeverities: eventSeverities,
 	}
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
@@ -45,9 +47,6 @@ func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, lo
 }
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
-	mux.Handle("POST /api/v1/notifications",
-		s.authenticate(s.requirePermissions(PermPublish)(http.HandlerFunc(s.handlePublishNotification))))
-
 	// Events
 	mux.Handle("POST /api/v1/events",
 		s.authenticate(s.requirePermissions(PermPublish)(http.HandlerFunc(s.handleCreateEvent))))
@@ -63,6 +62,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		s.authenticate(s.requirePermissions(PermRead)(http.HandlerFunc(s.handleListEventNotifications))))
 
 	// Notifications
+	mux.Handle("POST /api/v1/notifications",
+		s.authenticate(s.requirePermissions(PermPublish)(http.HandlerFunc(s.handlePublishNotification))))
 	mux.Handle("GET /api/v1/notifications/{notification_id}",
 		s.authenticate(s.requirePermissions(PermRead)(http.HandlerFunc(s.handleGetNotification))))
 	mux.Handle("GET /api/v1/notifications/{notification_id}/deliveries",

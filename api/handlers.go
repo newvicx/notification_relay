@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"notification_relay/db"
@@ -129,6 +130,22 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 	if hasEmail && req.EmailTemplate == "" {
 		http.Error(w, "email_template is required when email channel is specified", http.StatusBadRequest)
 		return
+	}
+
+	if req.EventSeverity != "" {
+		validSeverity := false
+		for _, severity := range s.eventSeverities {
+			if strings.ToLower(severity) == strings.ToLower(req.EventSeverity) {
+				req.EventSeverity = severity
+				validSeverity = true
+				break
+			}
+		}
+		if !validSeverity {
+			valid := strings.Join(s.eventSeverities, ",")
+			http.Error(w, fmt.Sprintf("unknown severity %q; valid values: %s", req.EventSeverity, valid), http.StatusBadRequest)
+			return
+		}
 	}
 
 	ctx := r.Context()
