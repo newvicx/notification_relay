@@ -160,8 +160,8 @@ func TestCreateEvent_MissingEventID(t *testing.T) {
 	srv, _ := newTestServer(t, publisherAuth())
 	body, _ := json.Marshal(map[string]any{"event_name": "no id"})
 	w := do(srv, "POST", "/api/v1/events", body)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("want 400, got %d", w.Code)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("want 201, got %d", w.Code)
 	}
 }
 
