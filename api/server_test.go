@@ -66,7 +66,7 @@ func newTestServer(t *testing.T, auth ldap.Authenticator) (*api.Server, func()) 
 	_, q := testutil.OpenDB(t)
 	queue := make(chan notify.Job, 16)
 	logger := noopLogger()
-	srv := api.NewServer(config.HTTPConfig{}, q, queue, logger, auth, okGroupVerifier(), testRoleConfig)
+	srv := api.NewServer(config.HTTPConfig{}, q, queue, logger, auth, okGroupVerifier(), testRoleConfig, []string{"test"})
 	return srv, func() {}
 }
 
@@ -623,7 +623,6 @@ func TestEndEvent_AuditLog(t *testing.T) {
 		t.Error("expected end_time to be set in new_values snapshot")
 	}
 }
-
 
 func TestListEventNotifications(t *testing.T) {
 	srv, _ := newTestServer(t, publisherAuth())

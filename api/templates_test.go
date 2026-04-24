@@ -28,7 +28,7 @@ func newAdminTestServer(t *testing.T) (*api.Server, func()) {
 	}
 	_, q := testutil.OpenDB(t)
 	queue := make(chan notify.Job, 16)
-	srv := api.NewServer(config.HTTPConfig{}, q, queue, noopLogger(), adminAuth(), okGroupVerifier(), roleConfig)
+	srv := api.NewServer(config.HTTPConfig{}, q, queue, noopLogger(), adminAuth(), okGroupVerifier(), roleConfig, []string{"test"})
 	return srv, func() {}
 }
 
@@ -171,8 +171,8 @@ func TestUpdateTemplate(t *testing.T) {
 	do(srv, "POST", "/api/v1/templates", createBody)
 
 	updateBody, _ := json.Marshal(map[string]any{
-		"subject": "New Subject: {{.severity}}",
-		"body":    "<p>{{.severity}}</p>",
+		"subject":       "New Subject: {{.severity}}",
+		"body":          "<p>{{.severity}}</p>",
 		"required_vars": []string{"severity"},
 	})
 	w := do(srv, "PUT", "/api/v1/templates/upd-tmpl", updateBody)

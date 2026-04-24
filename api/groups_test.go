@@ -10,8 +10,8 @@ import (
 
 	"notification_relay/api"
 	"notification_relay/config"
-	ldap "notification_relay/ldap"
 	"notification_relay/db"
+	ldap "notification_relay/ldap"
 	"notification_relay/notify"
 	"notification_relay/testutil"
 )
@@ -29,7 +29,7 @@ func newAdminServerWithQ(t *testing.T) (*api.Server, *db.Queries) {
 	queue := make(chan notify.Job, 16)
 	srv := api.NewServer(config.HTTPConfig{}, q, queue, noopLogger(),
 		&stubAuth{result: &ldap.AuthResult{UserDN: "CN=admin,DC=example,DC=com", Groups: []string{"grp-admins"}}},
-		okGroupVerifier(), roleConfig)
+		okGroupVerifier(), roleConfig, []string{"test"})
 	return srv, q
 }
 
