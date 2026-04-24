@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 	"time"
 
 	"notification_relay/db"
@@ -143,8 +144,13 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 		startTime := req.StartTime
 		if startTime == "" {
 			startTime = time.Now().UTC().Format(time.RFC3339)
+		} else {
+			startTime, err = parseTimeToRFC3339(startTime)
+			if err != nil {
+				http.Error(w, "invalid start_time: "+err.Error(), http.StatusBadRequest)
+				return
+			}
 		}
-		// TODO: Add parsing for various time formats to standardize to time.Time then format to RFC3339
 		event, err = s.q.InsertEvent(ctx, db.InsertEventParams{
 			EventID:          req.EventID,
 			EventUrl:         nullString(req.EventURL),
@@ -163,17 +169,21 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 
 	// Mark the event as ended if end_time was supplied and not already set.
 	if req.EndTime != "" && (!event.EndTime.Valid || event.EndTime.String == "") {
-		// TODO: Add parsing for various time formats to standardize to time.Time then format to RFC3339
+		endTime, err := parseTimeToRFC3339(req.EndTime)
+		if err != nil {
+			http.Error(w, "invalid end_time: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 		oldEvent := event
 		if err := s.q.UpdateEventEndTime(ctx, db.UpdateEventEndTimeParams{
-			EndTime: sql.NullString{String: req.EndTime, Valid: true},
+			EndTime: sql.NullString{String: endTime, Valid: true},
 			EventID: event.EventID,
 		}); err != nil {
 			s.logger.Error("publish: update event end time failed", "event_id", event.EventID, "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		event.EndTime = sql.NullString{String: req.EndTime, Valid: true}
+		event.EndTime = sql.NullString{String: endTime, Valid: true}
 		s.auditLogAction(r, "end_event", "events", marshalAuditJSON(oldEvent), marshalAuditJSON(event))
 	}
 
@@ -293,4 +303,28 @@ func newUUIDV7() string {
 
 func nullString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: s != ""}
+}
+
+// parseTimeToRFC3339 normalizes a caller-supplied time string to RFC3339 UTC.
+// Accepted formats: RFC3339/RFC3339Nano, ISO-8601 without timezone,
+// "YYYY-MM-DD", "MM/DD/YYYY HH:MM:SS AM/PM", and Unix epoch seconds.
+func parseTimeToRFC3339(s string) (string, error) {
+	formats := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+		"01/02/2006 03:04:05 PM",
+		"01/02/2006 3:04:05 PM",
+	}
+	for _, f := range formats {
+		if t, err := time.Parse(f, s); err == nil {
+			return t.UTC().Format(time.RFC3339), nil
+		}
+	}
+	if epoch, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return time.Unix(epoch, 0).UTC().Format(time.RFC3339), nil
+	}
+	return "", fmt.Errorf("unrecognized time format: %q", s)
 }
