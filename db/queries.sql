@@ -49,6 +49,13 @@ UPDATE events SET end_time = ? WHERE event_id = ?;
 -- name: ListEvents :many
 SELECT * FROM events ORDER BY start_time DESC LIMIT ? OFFSET ?;
 
+-- name: ListEventsFiltered :many
+SELECT * FROM events
+WHERE (:start_from = '' OR start_time >= :start_from)
+  AND (:start_to = '' OR start_time <= :start_to)
+ORDER BY start_time DESC
+LIMIT :limit OFFSET :offset;
+
 -- TODO: Add UpdateEvent query
 
 -- notifications

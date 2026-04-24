@@ -43,6 +43,7 @@ type Querier interface {
 	ListDistinctGroupNames(ctx context.Context) ([]string, error)
 	ListEmailTemplates(ctx context.Context) ([]EmailTemplate, error)
 	ListEvents(ctx context.Context, arg ListEventsParams) ([]Event, error)
+	ListEventsFiltered(ctx context.Context, arg ListEventsFilteredParams) ([]Event, error)
 	ListGroupMembers(ctx context.Context, groupName string) ([]GroupMember, error)
 	// Non-terminal Twilio message statuses: accepted, scheduled, queued, sending, sent
 	// "sent" means the carrier accepted the message but delivery is not yet confirmed;

@@ -791,6 +791,58 @@ func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]Event
 	return items, nil
 }
 
+const listEventsFiltered = `-- name: ListEventsFiltered :many
+SELECT id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time FROM events
+WHERE (?1 = '' OR start_time >= ?1)
+  AND (?2 = '' OR start_time <= ?2)
+ORDER BY start_time DESC
+LIMIT ?4 OFFSET ?3
+`
+
+type ListEventsFilteredParams struct {
+	StartFrom interface{} `json:"start_from"`
+	StartTo   interface{} `json:"start_to"`
+	Offset    int64       `json:"offset"`
+	Limit     int64       `json:"limit"`
+}
+
+func (q *Queries) ListEventsFiltered(ctx context.Context, arg ListEventsFilteredParams) ([]Event, error) {
+	rows, err := q.db.QueryContext(ctx, listEventsFiltered,
+		arg.StartFrom,
+		arg.StartTo,
+		arg.Offset,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Event
+	for rows.Next() {
+		var i Event
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventID,
+			&i.EventUrl,
+			&i.EventName,
+			&i.EventDescription,
+			&i.EventSeverity,
+			&i.StartTime,
+			&i.EndTime,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGroupMembers = `-- name: ListGroupMembers :many
 SELECT group_name, username, display_name, email, mobile, work, synced_at FROM group_members WHERE group_name = ? ORDER BY username
 `

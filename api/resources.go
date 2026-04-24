@@ -196,10 +196,10 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleListEvents returns a paginated list of events ordered by start_time DESC.
-// Query params: limit (default 50, max 200), offset (default 0).
+// Query params: limit (default 50, max 200), offset (default 0),
+// start_from (RFC3339, inclusive lower bound on start_time),
+// start_to (RFC3339, inclusive upper bound on start_time).
 func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
-	// TODO: Add time based query for events on start time and end time
-	// TODO: Add username query for events
 	limit := int64(50)
 	offset := int64(0)
 
@@ -220,7 +220,32 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
 		offset = n
 	}
 
-	events, err := s.q.ListEvents(r.Context(), db.ListEventsParams{Limit: limit, Offset: offset})
+	startFrom := ""
+	startTo := ""
+
+	if v := r.URL.Query().Get("start_from"); v != "" {
+		normalized, err := parseTimeToRFC3339(v)
+		if err != nil {
+			http.Error(w, "invalid start_from: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		startFrom = normalized
+	}
+	if v := r.URL.Query().Get("start_to"); v != "" {
+		normalized, err := parseTimeToRFC3339(v)
+		if err != nil {
+			http.Error(w, "invalid start_to: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		startTo = normalized
+	}
+
+	events, err := s.q.ListEventsFiltered(r.Context(), db.ListEventsFilteredParams{
+		StartFrom: startFrom,
+		StartTo:   startTo,
+		Limit:     limit,
+		Offset:    offset,
+	})
 	if err != nil {
 		s.logger.Error("list events failed", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
