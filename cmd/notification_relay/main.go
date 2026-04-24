@@ -105,13 +105,13 @@ func main() {
 	var voiceProvider notify.VoiceProvider
 	if cfg.Twilio.AccountSID != "" {
 		smsProvider = notify.NewTwilioSMS(cfg.Twilio)
-		voiceProvider = notify.NewTwilioVoice(cfg.Twilio)
+		voiceProvider = notify.NewTwilioVoice(cfg.Twilio, cfg.Notify.DeliveryTimeout)
 	}
 
 	// SMTP email provider (only constructed when host is configured)
 	var emailProvider notify.EmailProvider
 	if cfg.SMTP.Host != "" {
-		emailProvider = notify.NewSMTPEmail(cfg.SMTP)
+		emailProvider = notify.NewSMTPEmail(cfg.SMTP, cfg.Notify.DeliveryTimeout)
 	}
 
 	// Dispatcher
@@ -145,7 +145,7 @@ func main() {
 	)
 
 	// HTTP server
-	srv := api.NewServer(cfg.HTTP, writerQ, jobQueue, logger, ldapAuth, groupVerifier, cfg.LDAP.Roles)
+	srv := api.NewServer(cfg.HTTP, writerQ, jobQueue, logger, ldapAuth, groupVerifier, cfg.LDAP.Roles, cfg.Severities)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

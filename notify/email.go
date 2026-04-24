@@ -21,12 +21,13 @@ type EmailProvider interface {
 // It supports plaintext, STARTTLS, and direct TLS connections controlled by
 // the TLSMode field in SMTPConfig.
 type SMTPEmail struct {
-	cfg config.SMTPConfig
+	cfg     config.SMTPConfig
+	timeout time.Duration
 }
 
 // NewSMTPEmail constructs an SMTPEmail provider from the given config.
-func NewSMTPEmail(cfg config.SMTPConfig) *SMTPEmail {
-	return &SMTPEmail{cfg: cfg}
+func NewSMTPEmail(cfg config.SMTPConfig, timeout time.Duration) *SMTPEmail {
+	return &SMTPEmail{cfg: cfg, timeout: timeout}
 }
 
 // Send delivers an HTML email to `to` with the given subject and body.
@@ -35,7 +36,7 @@ func (e *SMTPEmail) Send(ctx context.Context, to, subject, body string) error {
 	addr := fmt.Sprintf("%s:%d", e.cfg.Host, e.cfg.Port)
 
 	// Derive a dial timeout from the context deadline if one is set.
-	timeout := 30 * time.Second
+	timeout := e.timeout
 	if dl, ok := ctx.Deadline(); ok {
 		if remaining := time.Until(dl); remaining < timeout {
 			timeout = remaining

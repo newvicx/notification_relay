@@ -165,14 +165,14 @@ type TwilioVoice struct {
 }
 
 // NewTwilioVoice constructs a TwilioVoice provider from the given config.
-func NewTwilioVoice(cfg config.TwilioConfig) *TwilioVoice {
+func NewTwilioVoice(cfg config.TwilioConfig, timeout time.Duration) *TwilioVoice {
 	return &TwilioVoice{
 		accountSID: cfg.AccountSID,
 		tokenSID:   cfg.TokenSID,
 		authToken:  cfg.AuthToken,
 		fromNumber: cfg.FromNumber,
 		baseURL:    "https://api.twilio.com",
-		client:     &http.Client{Timeout: 30 * time.Second},
+		client:     &http.Client{Timeout: timeout},
 	}
 }
 
