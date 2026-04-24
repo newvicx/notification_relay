@@ -165,8 +165,14 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	startTime := req.StartTime
 	if startTime == "" {
 		startTime = time.Now().UTC().Format(time.RFC3339)
+	} else {
+		var parseErr error
+		startTime, parseErr = parseTimeToRFC3339(startTime)
+		if parseErr != nil {
+			http.Error(w, "invalid start_time: "+parseErr.Error(), http.StatusBadRequest)
+			return
+		}
 	}
-	// TODO: Add parsing for various time formats to standardize to time.Time then format to RFC3339
 
 	event, err := s.q.InsertEvent(ctx, db.InsertEventParams{
 		EventID:          req.EventID,
