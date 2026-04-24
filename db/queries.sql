@@ -33,8 +33,8 @@ SELECT DISTINCT group_name FROM group_members ORDER BY group_name;
 -- events
 
 -- name: InsertEvent :one
-INSERT INTO events (event_id, event_url, event_name, event_description, event_severity, start_time, end_time)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO events (event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetEventByID :one
@@ -49,15 +49,27 @@ UPDATE events SET end_time = ? WHERE event_id = ?;
 -- name: ListEvents :many
 SELECT * FROM events ORDER BY start_time DESC LIMIT ? OFFSET ?;
 
--- TODO: Add UpdateEvent query
+-- name: ListEventsFiltered :many
+SELECT * FROM events
+WHERE (:start_from = '' OR start_time >= :start_from)
+  AND (:start_to = '' OR start_time <= :start_to)
+ORDER BY start_time DESC
+LIMIT :limit OFFSET :offset;
+
+-- name: UpdateEvent :one
+UPDATE events
+SET event_url = ?, event_name = ?, event_description = ?, event_severity = ?,
+    modified_by = ?, modified_at = ?
+WHERE event_id = ?
+RETURNING *;
 
 -- notifications
 
 -- name: InsertNotification :one
 INSERT INTO notifications
     (notification_id, event_id, groups, destinations, channels, message, member_count,
-     email_template, email_vars, created_at, status)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     email_template, email_vars, created_at, created_by, status)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetNotificationByID :one

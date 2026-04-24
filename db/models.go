@@ -56,6 +56,10 @@ type Event struct {
 	EventSeverity    sql.NullString `json:"event_severity"`
 	StartTime        string         `json:"start_time"`
 	EndTime          sql.NullString `json:"end_time"`
+	CreatedBy        sql.NullString `json:"created_by"`
+	CreatedAt        sql.NullString `json:"created_at"`
+	ModifiedBy       sql.NullString `json:"modified_by"`
+	ModifiedAt       sql.NullString `json:"modified_at"`
 }
 
 type GroupMember struct {
@@ -82,6 +86,7 @@ type Notification struct {
 	EmailTemplate  sql.NullString `json:"email_template"`
 	EmailVars      sql.NullString `json:"email_vars"`
 	CreatedAt      string         `json:"created_at"`
+	CreatedBy      sql.NullString `json:"created_by"`
 }
 
 type SyncGroup struct {

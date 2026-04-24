@@ -13,14 +13,17 @@ const eventsUsage = `Usage: nrcli events <subcommand> [flags] [arguments]
 Subcommands:
   list                  List events (newest first)
   create                Create a new event
-  get   EVENT_ID        Get an event by ID
-  end   EVENT_ID        Mark an event as resolved
+  get    EVENT_ID       Get an event by ID
+  update EVENT_ID       Update mutable fields on an event
+  end    EVENT_ID       Mark an event as resolved
   notifications EVENT_ID  List notifications sent for an event
   summary   EVENT_ID    Show full event detail with all notifications and deliveries
 
 Flags for 'list':
-  --limit N       Max records to return (1-200, default: 50)
-  --offset N      Records to skip (default: 0)
+  --limit N           Max records to return (1-200, default: 50)
+  --offset N          Records to skip (default: 0)
+  --start-from TIME   Lower bound on start_time (RFC3339, inclusive)
+  --start-to TIME     Upper bound on start_time (RFC3339, inclusive)
 
 Flags for 'create':
   --event-id ID         External event identifier (required)
@@ -29,6 +32,12 @@ Flags for 'create':
   --url URL             URL associated with the event
   --description DESC    Event description
   --start-time TIME     Start time in RFC3339 (default: now)
+
+Flags for 'update':
+  --name NAME           New event name
+  --severity SEV        New severity
+  --url URL             New URL
+  --description DESC    New description
 
 Flags for 'end':
   --end-time TIME       End time in RFC3339 (default: now)
@@ -46,6 +55,8 @@ func runEvents(cfg *Config, args []string) {
 		runEventsCreate(cfg, args[1:])
 	case "get":
 		runEventsGet(cfg, args[1:])
+	case "update":
+		runEventsUpdate(cfg, args[1:])
 	case "end":
 		runEventsEnd(cfg, args[1:])
 	case "notifications":
@@ -63,12 +74,20 @@ func runEventsList(cfg *Config, args []string) {
 	fs := newFlagSet("events list")
 	limit := fs.Int("limit", 50, "max records to return")
 	offset := fs.Int("offset", 0, "records to skip")
+	startFrom := fs.String("start-from", "", "lower bound on start_time (RFC3339, inclusive)")
+	startTo := fs.String("start-to", "", "upper bound on start_time (RFC3339, inclusive)")
 	fs.Usage = func() { fmt.Fprint(os.Stderr, eventsUsage) }
 	parseFlags(fs, args)
 
 	q := url.Values{}
 	q.Set("limit", strconv.Itoa(*limit))
 	q.Set("offset", strconv.Itoa(*offset))
+	if *startFrom != "" {
+		q.Set("start_from", *startFrom)
+	}
+	if *startTo != "" {
+		q.Set("start_to", *startTo)
+	}
 
 	body, err := NewClient(cfg).Get("/api/v1/events", q)
 	if err != nil {
@@ -150,6 +169,52 @@ func runEventsGet(cfg *Config, args []string) {
 	eventID := fs.Arg(0)
 
 	body, err := NewClient(cfg).Get("/api/v1/events/"+url.PathEscape(eventID), nil)
+	if err != nil {
+		die(err)
+	}
+	if cfg.JSON {
+		printJSON(body)
+		return
+	}
+	var e Event
+	if err := json.Unmarshal(body, &e); err != nil {
+		die(err)
+	}
+	printEventDetail(e)
+}
+
+func runEventsUpdate(cfg *Config, args []string) {
+	fs := newFlagSet("events update")
+	name := fs.String("name", "", "new event name")
+	severity := fs.String("severity", "", "new severity level")
+	eventURL := fs.String("url", "", "new URL associated with the event")
+	desc := fs.String("description", "", "new event description")
+	fs.Usage = func() { fmt.Fprint(os.Stderr, eventsUsage) }
+	parseFlags(fs, args)
+
+	if fs.NArg() == 0 {
+		dief("EVENT_ID argument is required")
+	}
+	eventID := fs.Arg(0)
+
+	req := map[string]any{}
+	if *name != "" {
+		req["event_name"] = *name
+	}
+	if *severity != "" {
+		req["event_severity"] = *severity
+	}
+	if *eventURL != "" {
+		req["event_url"] = *eventURL
+	}
+	if *desc != "" {
+		req["event_description"] = *desc
+	}
+	if len(req) == 0 {
+		dief("at least one of --name, --severity, --url, or --description is required")
+	}
+
+	_, body, err := NewClient(cfg).Patch("/api/v1/events/"+url.PathEscape(eventID), req)
 	if err != nil {
 		die(err)
 	}

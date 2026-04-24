@@ -84,7 +84,7 @@ func (q *Queries) GetEmailTemplateByName(ctx context.Context, templateName strin
 }
 
 const getEventByEventID = `-- name: GetEventByEventID :one
-SELECT id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time FROM events WHERE event_id = ?
+SELECT id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at, modified_by, modified_at FROM events WHERE event_id = ?
 `
 
 func (q *Queries) GetEventByEventID(ctx context.Context, eventID string) (Event, error) {
@@ -99,12 +99,16 @@ func (q *Queries) GetEventByEventID(ctx context.Context, eventID string) (Event,
 		&i.EventSeverity,
 		&i.StartTime,
 		&i.EndTime,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.ModifiedBy,
+		&i.ModifiedAt,
 	)
 	return i, err
 }
 
 const getEventByID = `-- name: GetEventByID :one
-SELECT id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time FROM events WHERE id = ?
+SELECT id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at, modified_by, modified_at FROM events WHERE id = ?
 `
 
 func (q *Queries) GetEventByID(ctx context.Context, id int64) (Event, error) {
@@ -119,6 +123,10 @@ func (q *Queries) GetEventByID(ctx context.Context, id int64) (Event, error) {
 		&i.EventSeverity,
 		&i.StartTime,
 		&i.EndTime,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.ModifiedBy,
+		&i.ModifiedAt,
 	)
 	return i, err
 }
@@ -148,7 +156,7 @@ func (q *Queries) GetGroupMember(ctx context.Context, arg GetGroupMemberParams) 
 }
 
 const getNotificationByID = `-- name: GetNotificationByID :one
-SELECT id, notification_id, event_id, "groups", destinations, channels, message, status, error_message, member_count, email_template, email_vars, created_at FROM notifications WHERE id = ?
+SELECT id, notification_id, event_id, "groups", destinations, channels, message, status, error_message, member_count, email_template, email_vars, created_at, created_by FROM notifications WHERE id = ?
 `
 
 func (q *Queries) GetNotificationByID(ctx context.Context, id int64) (Notification, error) {
@@ -168,12 +176,13 @@ func (q *Queries) GetNotificationByID(ctx context.Context, id int64) (Notificati
 		&i.EmailTemplate,
 		&i.EmailVars,
 		&i.CreatedAt,
+		&i.CreatedBy,
 	)
 	return i, err
 }
 
 const getNotificationByNotificationID = `-- name: GetNotificationByNotificationID :one
-SELECT id, notification_id, event_id, "groups", destinations, channels, message, status, error_message, member_count, email_template, email_vars, created_at FROM notifications WHERE notification_id = ?
+SELECT id, notification_id, event_id, "groups", destinations, channels, message, status, error_message, member_count, email_template, email_vars, created_at, created_by FROM notifications WHERE notification_id = ?
 `
 
 func (q *Queries) GetNotificationByNotificationID(ctx context.Context, notificationID string) (Notification, error) {
@@ -193,6 +202,7 @@ func (q *Queries) GetNotificationByNotificationID(ctx context.Context, notificat
 		&i.EmailTemplate,
 		&i.EmailVars,
 		&i.CreatedAt,
+		&i.CreatedBy,
 	)
 	return i, err
 }
@@ -442,9 +452,9 @@ func (q *Queries) InsertEmailTemplate(ctx context.Context, arg InsertEmailTempla
 
 const insertEvent = `-- name: InsertEvent :one
 
-INSERT INTO events (event_id, event_url, event_name, event_description, event_severity, start_time, end_time)
-VALUES (?, ?, ?, ?, ?, ?, ?)
-RETURNING id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time
+INSERT INTO events (event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at, modified_by, modified_at
 `
 
 type InsertEventParams struct {
@@ -455,6 +465,8 @@ type InsertEventParams struct {
 	EventSeverity    sql.NullString `json:"event_severity"`
 	StartTime        string         `json:"start_time"`
 	EndTime          sql.NullString `json:"end_time"`
+	CreatedBy        sql.NullString `json:"created_by"`
+	CreatedAt        string         `json:"created_at"`
 }
 
 // events
@@ -467,6 +479,8 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) (Event
 		arg.EventSeverity,
 		arg.StartTime,
 		arg.EndTime,
+		arg.CreatedBy,
+		arg.CreatedAt,
 	)
 	var i Event
 	err := row.Scan(
@@ -478,6 +492,10 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) (Event
 		&i.EventSeverity,
 		&i.StartTime,
 		&i.EndTime,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.ModifiedBy,
+		&i.ModifiedAt,
 	)
 	return i, err
 }
@@ -516,9 +534,9 @@ const insertNotification = `-- name: InsertNotification :one
 
 INSERT INTO notifications
     (notification_id, event_id, groups, destinations, channels, message, member_count,
-     email_template, email_vars, created_at, status)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, notification_id, event_id, "groups", destinations, channels, message, status, error_message, member_count, email_template, email_vars, created_at
+     email_template, email_vars, created_at, created_by, status)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, notification_id, event_id, "groups", destinations, channels, message, status, error_message, member_count, email_template, email_vars, created_at, created_by
 `
 
 type InsertNotificationParams struct {
@@ -532,6 +550,7 @@ type InsertNotificationParams struct {
 	EmailTemplate  sql.NullString `json:"email_template"`
 	EmailVars      sql.NullString `json:"email_vars"`
 	CreatedAt      string         `json:"created_at"`
+	CreatedBy      sql.NullString `json:"created_by"`
 	Status         string         `json:"status"`
 }
 
@@ -548,6 +567,7 @@ func (q *Queries) InsertNotification(ctx context.Context, arg InsertNotification
 		arg.EmailTemplate,
 		arg.EmailVars,
 		arg.CreatedAt,
+		arg.CreatedBy,
 		arg.Status,
 	)
 	var i Notification
@@ -565,6 +585,7 @@ func (q *Queries) InsertNotification(ctx context.Context, arg InsertNotification
 		&i.EmailTemplate,
 		&i.EmailVars,
 		&i.CreatedAt,
+		&i.CreatedBy,
 	)
 	return i, err
 }
@@ -751,7 +772,7 @@ func (q *Queries) ListEmailTemplates(ctx context.Context) ([]EmailTemplate, erro
 }
 
 const listEvents = `-- name: ListEvents :many
-SELECT id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time FROM events ORDER BY start_time DESC LIMIT ? OFFSET ?
+SELECT id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at, modified_by, modified_at FROM events ORDER BY start_time DESC LIMIT ? OFFSET ?
 `
 
 type ListEventsParams struct {
@@ -777,6 +798,66 @@ func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]Event
 			&i.EventSeverity,
 			&i.StartTime,
 			&i.EndTime,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.ModifiedBy,
+			&i.ModifiedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEventsFiltered = `-- name: ListEventsFiltered :many
+SELECT id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at, modified_by, modified_at FROM events
+WHERE (?1 = '' OR start_time >= ?1)
+  AND (?2 = '' OR start_time <= ?2)
+ORDER BY start_time DESC
+LIMIT ?4 OFFSET ?3
+`
+
+type ListEventsFilteredParams struct {
+	StartFrom interface{} `json:"start_from"`
+	StartTo   interface{} `json:"start_to"`
+	Offset    int64       `json:"offset"`
+	Limit     int64       `json:"limit"`
+}
+
+func (q *Queries) ListEventsFiltered(ctx context.Context, arg ListEventsFilteredParams) ([]Event, error) {
+	rows, err := q.db.QueryContext(ctx, listEventsFiltered,
+		arg.StartFrom,
+		arg.StartTo,
+		arg.Offset,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Event
+	for rows.Next() {
+		var i Event
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventID,
+			&i.EventUrl,
+			&i.EventName,
+			&i.EventDescription,
+			&i.EventSeverity,
+			&i.StartTime,
+			&i.EndTime,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.ModifiedBy,
+			&i.ModifiedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -925,7 +1006,7 @@ func (q *Queries) ListInFlightVoiceDeliveries(ctx context.Context) ([]Delivery, 
 }
 
 const listNotificationsByEventID = `-- name: ListNotificationsByEventID :many
-SELECT id, notification_id, event_id, "groups", destinations, channels, message, status, error_message, member_count, email_template, email_vars, created_at FROM notifications WHERE event_id = ? ORDER BY created_at DESC
+SELECT id, notification_id, event_id, "groups", destinations, channels, message, status, error_message, member_count, email_template, email_vars, created_at, created_by FROM notifications WHERE event_id = ? ORDER BY created_at DESC
 `
 
 func (q *Queries) ListNotificationsByEventID(ctx context.Context, eventID string) ([]Notification, error) {
@@ -951,6 +1032,7 @@ func (q *Queries) ListNotificationsByEventID(ctx context.Context, eventID string
 			&i.EmailTemplate,
 			&i.EmailVars,
 			&i.CreatedAt,
+			&i.CreatedBy,
 		); err != nil {
 			return nil, err
 		}
@@ -963,6 +1045,52 @@ func (q *Queries) ListNotificationsByEventID(ctx context.Context, eventID string
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateEvent = `-- name: UpdateEvent :one
+UPDATE events
+SET event_url = ?, event_name = ?, event_description = ?, event_severity = ?,
+    modified_by = ?, modified_at = ?
+WHERE event_id = ?
+RETURNING id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at, modified_by, modified_at
+`
+
+type UpdateEventParams struct {
+	EventUrl         sql.NullString `json:"event_url"`
+	EventName        sql.NullString `json:"event_name"`
+	EventDescription sql.NullString `json:"event_description"`
+	EventSeverity    sql.NullString `json:"event_severity"`
+	ModifiedBy       sql.NullString `json:"modified_by"`
+	ModifiedAt       sql.NullString `json:"modified_at"`
+	EventID          string         `json:"event_id"`
+}
+
+func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) (Event, error) {
+	row := q.db.QueryRowContext(ctx, updateEvent,
+		arg.EventUrl,
+		arg.EventName,
+		arg.EventDescription,
+		arg.EventSeverity,
+		arg.ModifiedBy,
+		arg.ModifiedAt,
+		arg.EventID,
+	)
+	var i Event
+	err := row.Scan(
+		&i.ID,
+		&i.EventID,
+		&i.EventUrl,
+		&i.EventName,
+		&i.EventDescription,
+		&i.EventSeverity,
+		&i.StartTime,
+		&i.EndTime,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.ModifiedBy,
+		&i.ModifiedAt,
+	)
+	return i, err
 }
 
 const listSyncGroups = `-- name: ListSyncGroups :many

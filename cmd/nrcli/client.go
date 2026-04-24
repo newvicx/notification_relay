@@ -111,6 +111,11 @@ func (c *Client) Put(path string, reqBody any) ([]byte, error) {
 	return body, err
 }
 
+// Patch performs a PATCH request with a JSON body and returns (statusCode, bodyBytes, error).
+func (c *Client) Patch(path string, reqBody any) (int, []byte, error) {
+	return c.doRaw(http.MethodPatch, path, nil, reqBody)
+}
+
 // Delete performs a DELETE request.
 func (c *Client) Delete(path string) error {
 	_, _, err := c.doRaw(http.MethodDelete, path, nil, nil)
