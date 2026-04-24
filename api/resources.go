@@ -293,7 +293,12 @@ func (s *Server) handleEndEvent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if body.EndTime != "" {
-			endTime = body.EndTime
+			var parseErr error
+			endTime, parseErr = parseTimeToRFC3339(body.EndTime)
+			if parseErr != nil {
+				http.Error(w, "invalid end_time: "+parseErr.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 	}
 
