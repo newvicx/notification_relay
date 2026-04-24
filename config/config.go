@@ -165,7 +165,6 @@ func interpolateEnv(data []byte) []byte {
 	})
 }
 
-// TODO: Review defaults
 func defaults() *Config {
 	return &Config{
 		Database: DatabaseConfig{
@@ -181,6 +180,7 @@ func defaults() *Config {
 			GroupFilter:   "(objectClass=group)",
 			SyncInterval:  15 * time.Minute,
 			DialTimeout:   10 * time.Second,
+			TLSSkipVerify: false,
 			PageSize:      500,
 			AuthCacheSize: 256,
 			AuthCacheTTL:  30 * time.Second,
@@ -203,7 +203,7 @@ func defaults() *Config {
 			Level:  "info",
 			Format: "json",
 		},
-		Severities: []string{"none", "information", "warning", "minor", "major", "critical"},
+		Severities: []string{"None", "Information", "Warning", "Minor", "Major", "Critical"},
 	}
 }
 
