@@ -89,6 +89,12 @@ type Notification struct {
 	CreatedBy      sql.NullString `json:"created_by"`
 }
 
+type SmsSubscription struct {
+	Username     string `json:"username"`
+	Phone        string `json:"phone"`
+	SubscribedAt string `json:"subscribed_at"`
+}
+
 type SyncGroup struct {
 	ID        int64  `json:"id"`
 	GroupName string `json:"group_name"`

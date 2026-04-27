@@ -192,3 +192,20 @@ WHERE (:username = '' OR username = :username)
   AND (:to_time = '' OR timestamp <= :to_time)
 ORDER BY timestamp DESC
 LIMIT :limit OFFSET :offset;
+
+-- sms_subscriptions
+
+-- name: GetSMSSubscription :one
+SELECT * FROM sms_subscriptions WHERE username = ?;
+
+-- name: GetSMSSubscriptionByPhone :one
+SELECT * FROM sms_subscriptions WHERE phone = ?;
+
+-- name: InsertSMSSubscription :exec
+INSERT INTO sms_subscriptions (username, phone, subscribed_at) VALUES (?, ?, ?);
+
+-- name: ListSMSSubscriptions :many
+SELECT * FROM sms_subscriptions ORDER BY subscribed_at DESC;
+
+-- name: DeleteSMSSubscription :exec
+DELETE FROM sms_subscriptions WHERE username = ?;

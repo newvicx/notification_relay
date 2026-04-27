@@ -146,6 +146,20 @@ func insertMember(t *testing.T, q *db.Queries, group, username, mobile, work str
 	}
 }
 
+// insertSubscription registers username+phone in sms_subscriptions so the
+// dispatcher gate allows SMS delivery for that user/number.
+func insertSubscription(t *testing.T, q *db.Queries, username, phone string) {
+	t.Helper()
+	err := q.InsertSMSSubscription(context.Background(), db.InsertSMSSubscriptionParams{
+		Username:     username,
+		Phone:        phone,
+		SubscribedAt: time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		t.Fatalf("insert subscription: %v", err)
+	}
+}
+
 // ---- Tests ----
 
 func TestDispatcher_SMS(t *testing.T) {
@@ -153,6 +167,8 @@ func TestDispatcher_SMS(t *testing.T) {
 	notif := insertNotification(t, q, "EVT-SMS", []string{"grp-a"}, []string{"sms"}, "fire alarm")
 	insertMember(t, q, "grp-a", "alice", "+15551111111", "")
 	insertMember(t, q, "grp-a", "bob", "+15552222222", "")
+	insertSubscription(t, q, "alice", "+15551111111")
+	insertSubscription(t, q, "bob", "+15552222222")
 
 	sms := &stubSMS{sid: "SM001", status: "queued"}
 	d := NewDispatcher(defaultCfg(), q, make(chan Job, 1), sms, nil, nil, noopLogger())
@@ -222,6 +238,7 @@ func TestDispatcher_SMSAndVoice(t *testing.T) {
 	_, q := testutil.OpenDB(t)
 	notif := insertNotification(t, q, "EVT-BOTH", []string{"grp-c"}, []string{"sms", "voice"}, "dual alert")
 	insertMember(t, q, "grp-c", "alice", "+15551111111", "+15550001111")
+	insertSubscription(t, q, "alice", "+15551111111")
 
 	sms := &stubSMS{sid: "SM002", status: "queued"}
 	voice := &stubVoice{sid: "CA002", status: "queued"}
@@ -266,6 +283,7 @@ func TestDispatcher_ProviderError(t *testing.T) {
 	_, q := testutil.OpenDB(t)
 	notif := insertNotification(t, q, "EVT-ERR", []string{"grp-e"}, []string{"sms"}, "alert")
 	insertMember(t, q, "grp-e", "alice", "+15551111111", "")
+	insertSubscription(t, q, "alice", "+15551111111")
 
 	sms := &stubSMS{err: errors.New("network timeout")}
 	d := NewDispatcher(defaultCfg(), q, make(chan Job, 1), sms, nil, nil, noopLogger())
@@ -289,6 +307,8 @@ func TestDispatcher_MultipleGroups_MemberCount(t *testing.T) {
 	notif := insertNotification(t, q, "EVT-MULTI", []string{"grp-f", "grp-g"}, []string{"sms"}, "alert")
 	insertMember(t, q, "grp-f", "alice", "+15551111111", "")
 	insertMember(t, q, "grp-g", "bob", "+15552222222", "")
+	insertSubscription(t, q, "alice", "+15551111111")
+	insertSubscription(t, q, "bob", "+15552222222")
 
 	sms := &stubSMS{sid: "SM003", status: "queued"}
 	d := NewDispatcher(defaultCfg(), q, make(chan Job, 1), sms, nil, nil, noopLogger())
@@ -488,6 +508,7 @@ func TestDispatcher_DestinationSMS(t *testing.T) {
 		[]notifDestination{{Channel: "sms", Target: "+15559990001"}},
 		"destination alert",
 	)
+	insertSubscription(t, q, "dest-user", "+15559990001")
 
 	sms := &stubSMS{sid: "SM-DEST-001", status: "queued"}
 	d := NewDispatcher(defaultCfg(), q, make(chan Job, 1), sms, nil, nil, noopLogger())
@@ -605,6 +626,8 @@ func TestDispatcher_MixedGroupAndDestination(t *testing.T) {
 		t.Fatalf("insert notification: %v", err)
 	}
 	insertMember(t, q, "grp-mixed", "dave", "+15559990005", "")
+	insertSubscription(t, q, "dave", "+15559990005")
+	insertSubscription(t, q, "dest-mixed", "+15559990004")
 
 	sms := &stubSMS{sid: "SM-MIX", status: "queued"}
 	d := NewDispatcher(defaultCfg(), q, make(chan Job, 1), sms, nil, nil, noopLogger())

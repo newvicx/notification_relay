@@ -20,11 +20,13 @@ type Server struct {
 	srv             *http.Server
 	auth            ldap.Authenticator
 	groupVerifier   ldap.GroupVerifier
+	userLookup      ldap.UserLookup
+	sms             notify.SMSProvider // may be nil
 	roleConfig      map[string][]string
 	eventSeverities []string
 }
 
-func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, logger *slog.Logger, auth ldap.Authenticator, groupVerifier ldap.GroupVerifier, roleConfig map[string][]string, eventSeverities []string) *Server {
+func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, logger *slog.Logger, auth ldap.Authenticator, groupVerifier ldap.GroupVerifier, userLookup ldap.UserLookup, sms notify.SMSProvider, roleConfig map[string][]string, eventSeverities []string) *Server {
 	s := &Server{
 		cfg:             cfg,
 		q:               q,
@@ -32,6 +34,8 @@ func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, lo
 		logger:          logger,
 		auth:            auth,
 		groupVerifier:   groupVerifier,
+		userLookup:      userLookup,
+		sms:             sms,
 		roleConfig:      roleConfig,
 		eventSeverities: eventSeverities,
 	}
@@ -102,6 +106,20 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleUpdateTemplate))))
 	mux.Handle("DELETE /api/v1/templates/{template_name}",
 		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleDeleteTemplate))))
+
+	// SMS subscription self-service forms (form-based auth, no middleware)
+	mux.HandleFunc("GET /subscribe", s.handleSubscribeForm)
+	mux.HandleFunc("POST /subscribe", s.handleSubscribeSubmit)
+	mux.HandleFunc("GET /unsubscribe", s.handleUnsubscribeForm)
+	mux.HandleFunc("POST /unsubscribe", s.handleUnsubscribeSubmit)
+
+	// SMS subscription API (admin manages all; authenticated users manage their own)
+	mux.Handle("GET /api/v1/sms-subscriptions",
+		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleListSMSSubscriptions))))
+	mux.Handle("DELETE /api/v1/sms-subscriptions/me",
+		s.authenticate(http.HandlerFunc(s.handleSelfUnsubscribe)))
+	mux.Handle("DELETE /api/v1/sms-subscriptions/{username}",
+		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleDeleteSMSSubscription))))
 }
 
 // Handler returns the underlying HTTP handler, useful for testing with httptest.
