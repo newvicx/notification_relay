@@ -54,6 +54,28 @@ func (p *Poller) Run(ctx context.Context) {
 	}
 }
 
+func (p *Poller) RunPollFailed(ctx context.Context) {
+	deliveries, err := p.q.ListPollFailedDeliveries(ctx)
+	if err != nil {
+		p.logger.Error("poller: list poll_failed deliveries failed", "error", err)
+		return
+	}
+	err = p.q.ResetPollAttempts(ctx)
+	if err != nil {
+		p.logger.Error("poller: reset poll attempts failed", "error", err)
+		return
+	}
+
+	p.logger.Debug("poller: checking poll failed deliveries", "deliveries", len(deliveries))
+
+	for _, d := range deliveries {
+		p.checkDelivery(ctx, d)
+	}
+
+	p.logger.Info("done checking poll_failed deliveries")
+
+}
+
 func (p *Poller) pollPending(ctx context.Context) {
 	voice, err := p.q.ListInFlightVoiceDeliveries(ctx)
 	if err != nil {

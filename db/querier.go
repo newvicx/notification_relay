@@ -52,8 +52,10 @@ type Querier interface {
 	// Non-terminal Twilio voice statuses: queued, ringing, in-progress
 	ListInFlightVoiceDeliveries(ctx context.Context) ([]Delivery, error)
 	ListNotificationsByEventID(ctx context.Context, eventID string) ([]Notification, error)
+	ListPollFailedDeliveries(ctx context.Context) ([]Delivery, error)
 	// sync_groups
 	ListSyncGroups(ctx context.Context) ([]SyncGroup, error)
+	ResetPollAttempts(ctx context.Context) error
 	// Records an error on a delivery without changing its status or completion time.
 	// Called when the application fails to dispatch to the delivery service (e.g.
 	// network error calling Twilio or SMTP), as distinct from a terminal status

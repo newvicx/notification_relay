@@ -1047,6 +1047,50 @@ func (q *Queries) ListNotificationsByEventID(ctx context.Context, eventID string
 	return items, nil
 }
 
+const listPollFailedDeliveries = `-- name: ListPollFailedDeliveries :many
+SELECT id, delivery_id, notification_id, "group", member, destination, channel, status, email_template, email_vars, attempt, poll_attempts, error_message, sent_at, completed_at, twilio_sid FROM deliveries WHERE status = 'poll_failed'
+`
+
+func (q *Queries) ListPollFailedDeliveries(ctx context.Context) ([]Delivery, error) {
+	rows, err := q.db.QueryContext(ctx, listPollFailedDeliveries)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Delivery
+	for rows.Next() {
+		var i Delivery
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeliveryID,
+			&i.NotificationID,
+			&i.Group,
+			&i.Member,
+			&i.Destination,
+			&i.Channel,
+			&i.Status,
+			&i.EmailTemplate,
+			&i.EmailVars,
+			&i.Attempt,
+			&i.PollAttempts,
+			&i.ErrorMessage,
+			&i.SentAt,
+			&i.CompletedAt,
+			&i.TwilioSid,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSyncGroups = `-- name: ListSyncGroups :many
 
 SELECT id, group_name, created_at, created_by FROM sync_groups ORDER BY group_name
@@ -1079,6 +1123,17 @@ func (q *Queries) ListSyncGroups(ctx context.Context) ([]SyncGroup, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const resetPollAttempts = `-- name: ResetPollAttempts :exec
+UPDATE deliveries
+SET poll_attempts = 0
+WHERE status = 'poll_failed'
+`
+
+func (q *Queries) ResetPollAttempts(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, resetPollAttempts)
+	return err
 }
 
 const updateDeliveryError = `-- name: UpdateDeliveryError :exec

@@ -112,6 +112,9 @@ WHERE channel = 'voice'
   AND status IN ('queued', 'ringing', 'in-progress')
 ORDER BY sent_at;
 
+-- name: ListPollFailedDeliveries :many
+SELECT * FROM deliveries WHERE status = 'poll_failed';
+
 -- name: ListInFlightSMSDeliveries :many
 -- Non-terminal Twilio message statuses: accepted, scheduled, queued, sending, sent
 -- "sent" means the carrier accepted the message but delivery is not yet confirmed;
@@ -128,6 +131,11 @@ UPDATE deliveries
 SET poll_attempts = poll_attempts + 1
 WHERE delivery_id = ?
 RETURNING *;
+
+-- name: ResetPollAttempts :exec
+UPDATE deliveries
+SET poll_attempts = 0
+WHERE status = 'poll_failed';
 
 -- name: UpdateDeliveryStatus :exec
 -- error_message should include the Twilio error code when applicable,
