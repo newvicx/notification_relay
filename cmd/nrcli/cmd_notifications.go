@@ -15,7 +15,6 @@ Subcommands:
   deliveries NOTIFICATION_ID  List delivery attempts for a notification
 
 Flags for 'publish':
-  --event-id ID           External event identifier (required)
   --message MSG           Notification message (required)
   --group GROUP           LDAP group to notify; repeat for multiple
   --channel CHANNEL       Delivery channel for groups: sms, voice, email; repeat for multiple
@@ -23,6 +22,7 @@ Flags for 'publish':
   --destination CH:TARGET Direct delivery target as CHANNEL:TARGET; repeat for multiple
                           e.g. --destination sms:+12125551234
                                --destination email:ops@example.com
+  --event-id ID           External event identifier
   --event-name NAME       Event name (used when auto-creating the event)
   --event-severity SEV    Event severity
   --event-url URL         Event URL
@@ -97,9 +97,6 @@ func runNotificationsPublish(cfg *Config, args []string) {
 	fs.Usage = func() { fmt.Fprint(os.Stderr, notificationsUsage) }
 	parseFlags(fs, args)
 
-	if *eventID == "" {
-		dief("--event-id is required")
-	}
 	if len(groups) == 0 && len(destinations) == 0 {
 		dief("at least one --group or --destination is required")
 	}
@@ -111,8 +108,7 @@ func runNotificationsPublish(cfg *Config, args []string) {
 	}
 
 	req := map[string]any{
-		"event_id": *eventID,
-		"message":  *message,
+		"message": *message,
 	}
 	if len(groups) > 0 {
 		req["groups"] = []string(groups)
@@ -122,6 +118,9 @@ func runNotificationsPublish(cfg *Config, args []string) {
 	}
 	if len(destinations) > 0 {
 		req["destinations"] = []Destination(destinations)
+	}
+	if *eventID != "" {
+		req["event_id"] = *eventID
 	}
 	if *eventName != "" {
 		req["event_name"] = *eventName

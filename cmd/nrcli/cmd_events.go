@@ -26,7 +26,7 @@ Flags for 'list':
   --start-to TIME     Upper bound on start_time (RFC3339, inclusive)
 
 Flags for 'create':
-  --event-id ID         External event identifier (required)
+  --event-id ID         External event identifier
   --name NAME           Event name
   --severity SEV        Severity (e.g. critical, major, minor, warning, information)
   --url URL             URL associated with the event
@@ -120,11 +120,10 @@ func runEventsCreate(cfg *Config, args []string) {
 	fs.Usage = func() { fmt.Fprint(os.Stderr, eventsUsage) }
 	parseFlags(fs, args)
 
-	if *eventID == "" {
-		dief("--event-id is required")
+	req := map[string]any{}
+	if *eventID != "" {
+		req["event_id"] = *name
 	}
-
-	req := map[string]any{"event_id": *eventID}
 	if *name != "" {
 		req["event_name"] = *name
 	}
