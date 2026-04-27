@@ -198,6 +198,10 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 			http.Error(w, "invalid end_time: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+		if endTime < event.StartTime {
+			http.Error(w, fmt.Sprintf("invalid end_time: cannot be before start_time (%q < %q)", endTime, event.StartTime), http.StatusBadRequest)
+			return
+		}
 		oldEvent := event
 		if err := s.q.UpdateEventEndTime(ctx, db.UpdateEventEndTimeParams{
 			EndTime: sql.NullString{String: endTime, Valid: true},

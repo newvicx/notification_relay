@@ -445,6 +445,10 @@ func (s *Server) handleEndEvent(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "invalid end_time: "+parseErr.Error(), http.StatusBadRequest)
 				return
 			}
+			if endTime < event.StartTime {
+				http.Error(w, fmt.Sprintf("invalid end_time: cannot be before start_time (%q < %q)", endTime, event.StartTime), http.StatusBadRequest)
+				return
+			}
 		}
 	}
 
