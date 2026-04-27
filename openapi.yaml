@@ -102,9 +102,22 @@ components:
         type: string
 
   schemas:
+    Destination:
+      type: object
+      required: [channel, target]
+      properties:
+        channel:
+          type: string
+          enum: [sms, voice, email]
+        target:
+          type: string
+          description: |
+            Recipient address for this channel:
+            email address for `email`, E.164 phone number (e.g. `+12125551234`) for `sms`/`voice`
+
     Event:
       type: object
-      required: [id, event_id, start_time]
+      required: [id, event_id, start_time, created_at]
       properties:
         id:
           type: integer
@@ -131,6 +144,22 @@ components:
           format: date-time
           nullable: true
           description: Event end time (RFC3339); null while the event is active
+        created_by:
+          type: string
+          description: Username of the user who created the event
+        created_at:
+          type: string
+          format: date-time
+          description: When the event was created (RFC3339)
+        modified_by:
+          type: string
+          nullable: true
+          description: Username of the last user to update the event
+        modified_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the event was last updated (RFC3339)
       example:
         id: 1
         event_id: "alert-disk-high-01"
@@ -139,10 +168,14 @@ components:
         event_severity: "major"
         start_time: "2026-04-15T10:00:00Z"
         end_time: null
+        created_by: "alice"
+        created_at: "2026-04-15T10:00:00Z"
+        modified_by: null
+        modified_at: null
 
     Notification:
       type: object
-      required: [id, notification_id, event_id, groups, channels, message, member_count, created_at]
+      required: [id, notification_id, event_id, groups, destinations, channels, message, member_count, status, created_at]
       properties:
         id:
           type: integer
@@ -158,21 +191,36 @@ components:
           items:
             type: string
           description: LDAP groups targeted by this notification
+        destinations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Destination"
+          description: Direct delivery targets (channel + address) for this notification
         channels:
           type: array
           items:
             type: string
             enum: [sms, voice, email]
-          description: Delivery channels used
+          description: Delivery channels used for group-based targeting
         message:
           type: string
         member_count:
           type: integer
           format: int64
           description: Number of group members targeted at dispatch time
+        status:
+          type: string
+          description: Current notification status (e.g. `pending`, `dispatched`, `failed`)
+        error_message:
+          type: string
+          nullable: true
+          description: Error detail if the notification failed
         created_at:
           type: string
           format: date-time
+        created_by:
+          type: string
+          description: Username of the user who published the notification
 
     Delivery:
       type: object
@@ -188,10 +236,13 @@ components:
           type: string
         group:
           type: string
-          description: Group the member belongs to
+          description: Group the member belongs to (empty for direct-destination deliveries)
         member:
           type: string
-          description: Username of the recipient
+          description: Username of the recipient (empty for direct-destination deliveries)
+        destination:
+          type: string
+          description: Actual delivery address (email or E.164 phone number)
         channel:
           type: string
           enum: [sms, voice, email]
@@ -203,9 +254,10 @@ components:
           nullable: true
           description: Email template name used (email channel only)
         email_vars:
-          type: string
+          type: object
           nullable: true
-          description: JSON-serialized template variable map (email channel only)
+          additionalProperties: true
+          description: Template variable substitutions used for this delivery (email channel only)
         attempt:
           type: integer
           format: int64
@@ -218,6 +270,10 @@ components:
           type: string
           nullable: true
           description: Error detail if the delivery failed
+        twilio_sid:
+          type: string
+          nullable: true
+          description: Twilio message/call SID for SMS and voice deliveries
         sent_at:
           type: string
           format: date-time
@@ -333,12 +389,13 @@ components:
           type: string
           description: |
             Action performed. Well-known values:
-            `login`, `login_failed`, `create_event`, `end_event`,
+            `login`, `login_failed`, `create_event`, `update_event`, `end_event`,
+            `create_notification`,
             `create_template`, `update_template`, `delete_template`,
             `create_sync_group`, `delete_sync_group`
         impacted_table:
           type: string
-          description: Database table affected (e.g. `events`, `email_templates`, `auth`)
+          description: Database table affected (e.g. `events`, `notifications`, `email_templates`, `auth`)
         old_values:
           type: string
           description: JSON snapshot of the record before the mutation; omitted for creates
@@ -348,7 +405,7 @@ components:
 
     PublishResponse:
       type: object
-      required: [notification_id, event_id, groups, channels, message]
+      required: [notification_id, event_id, groups, destinations, channels, message, status]
       properties:
         notification_id:
           type: string
@@ -358,24 +415,45 @@ components:
           type: array
           items:
             type: string
+        destinations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Destination"
         channels:
           type: array
           items:
             type: string
         message:
           type: string
+        status:
+          type: string
+          description: Initial notification status (typically `pending`)
 
 paths:
   /api/v1/notifications:
     post:
       summary: Publish a notification
       description: |
-        Queues a notification for async delivery to one or more on-call groups
-        via the specified channels. If the referenced `event_id` does not exist
-        it is created automatically. Returns `202 Accepted` once the job is
-        enqueued.
+        Queues a notification for async delivery via the specified channels.
+        Returns `202 Accepted` once the job is enqueued.
 
-        When `email` is included in `channels`, `email_template` is required.
+        Targeting can be done in two ways (or combined):
+        - **Group-based**: provide `groups` + `channels`. Every member of each group
+          is contacted on all listed channels.
+        - **Direct**: provide `destinations` (each with a `channel` and an explicit
+          `target` address). Useful for ad-hoc recipients not in LDAP groups.
+
+        At least one of `groups` or `destinations` must be non-empty.
+        When `groups` is non-empty, `channels` must also be non-empty.
+
+        When `email` appears in `channels` or in any destination's `channel`,
+        `email_template` is required.
+
+        If `event_id` references an event that does not yet exist it is created
+        automatically. If `event_id` is omitted a UUID v7 is generated.
+
+        The `end_time` field, if supplied, marks the referenced event as ended
+        (ignored if the event already has an end time).
       operationId: publishNotification
       tags: [Notifications]
       requestBody:
@@ -384,11 +462,11 @@ paths:
           application/json:
             schema:
               type: object
-              required: [event_id, groups, channels, message]
+              required: [message]
               properties:
                 event_id:
                   type: string
-                  description: External event identifier; event is created if it does not exist
+                  description: External event identifier; auto-generated (UUID v7) if omitted
                 event_url:
                   type: string
                 event_name:
@@ -401,27 +479,34 @@ paths:
                   type: string
                   format: date-time
                   description: Used when auto-creating the event; defaults to now
+                end_time:
+                  type: string
+                  format: date-time
+                  description: If provided, marks the event as ended at this time (ignored if already ended)
                 groups:
                   type: array
-                  minItems: 1
                   items:
                     type: string
-                  description: LDAP group names to notify
+                  description: LDAP group names to notify; required when `destinations` is absent
+                destinations:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/Destination"
+                  description: Direct delivery targets; required when `groups` is absent
                 channels:
                   type: array
-                  minItems: 1
                   items:
                     type: string
                     enum: [sms, voice, email]
+                  description: Channels for group-based targeting; required when `groups` is non-empty
                 message:
                   type: string
                 email_template:
                   type: string
-                  description: Required when `email` is in channels
+                  description: Required when `email` is in `channels` or any destination uses the email channel
                 email_vars:
                   type: object
-                  additionalProperties:
-                    type: string
+                  additionalProperties: true
                   description: Template variable substitutions for email delivery
             example:
               event_id: "alert-disk-high-01"
@@ -442,7 +527,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/PublishResponse"
         "400":
-          description: Missing required fields or unknown channel value
+          description: Missing required fields, invalid channel/address, or unknown severity
         "401":
           description: Authentication required or invalid credentials
         "403":
@@ -455,7 +540,10 @@ paths:
   /api/v1/events:
     post:
       summary: Create an event
-      description: Creates a new event record. Returns `409 Conflict` if an event with the same `event_id` already exists.
+      description: |
+        Creates a new event record. Returns `409 Conflict` if an event with the
+        same `event_id` already exists. If `event_id` is omitted a UUID v7 is
+        generated automatically.
       operationId: createEvent
       tags: [Events]
       requestBody:
@@ -464,10 +552,10 @@ paths:
           application/json:
             schema:
               type: object
-              required: [event_id]
               properties:
                 event_id:
                   type: string
+                  description: External event identifier; auto-generated (UUID v7) if omitted
                 event_url:
                   type: string
                 event_name:
@@ -506,6 +594,20 @@ paths:
       parameters:
         - $ref: "#/components/parameters/limit"
         - $ref: "#/components/parameters/offset"
+        - name: start_from
+          in: query
+          description: Lower bound on `start_time` (RFC3339, inclusive)
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: start_to
+          in: query
+          description: Upper bound on `start_time` (RFC3339, inclusive)
+          required: false
+          schema:
+            type: string
+            format: date-time
       responses:
         "200":
           description: Paginated event list
@@ -556,6 +658,47 @@ paths:
         "500":
           description: Internal server error
 
+    patch:
+      summary: Update an event
+      description: |
+        Partially updates mutable fields on an existing event. Only fields
+        included in the request body are changed; omitted fields retain their
+        current values.
+      operationId: updateEvent
+      tags: [Events]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event_url:
+                  type: string
+                event_name:
+                  type: string
+                event_description:
+                  type: string
+                event_severity:
+                  type: string
+      responses:
+        "200":
+          description: Event updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Event"
+        "400":
+          description: Invalid JSON body or unknown severity value
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires publisher role
+        "404":
+          description: Event not found
+        "500":
+          description: Internal server error
+
   /api/v1/events/{event_id}/end:
     parameters:
       - $ref: "#/components/parameters/event_id"
@@ -587,7 +730,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Event"
         "400":
-          description: Invalid JSON body
+          description: Invalid JSON body or end_time before start_time
         "401":
           description: Authentication required or invalid credentials
         "403":
@@ -746,7 +889,7 @@ paths:
         "500":
           description: Internal server error
 
-  /api/v1/sync-groups:
+  /api/v1/groups/sync:
     get:
       summary: List sync groups
       description: |
@@ -773,9 +916,9 @@ paths:
     post:
       summary: Add a sync group
       description: |
-        Adds an LDAP group to the sync list. The syncer will begin mirroring
-        this group's membership on the next sync cycle. Returns `409 Conflict`
-        if the group is already configured.
+        Adds an LDAP group to the sync list. The group must exist in LDAP.
+        The syncer will begin mirroring this group's membership on the next
+        sync cycle. Returns `409 Conflict` if the group is already configured.
       operationId: createSyncGroup
       tags: [Sync Groups]
       requestBody:
@@ -807,11 +950,11 @@ paths:
         "409":
           description: This group is already configured for sync
         "422":
-          description: group_name is required
+          description: group_name is required or the group does not exist in LDAP
         "500":
           description: Internal server error
 
-  /api/v1/sync-groups/{group_name}:
+  /api/v1/groups/sync/{group_name}:
     parameters:
       - $ref: "#/components/parameters/group_name"
 
