@@ -95,10 +95,11 @@ func main() {
 		poller.Run(ctx)
 	}()
 
-	// TODO: Kick off a goroutine that makes N attempts (configurable) to get the status of any "poll_failed"
-	// twilio deliveries. This must be cancellable. It can follow the same model as poller but is just scoped
-	// differently. Instead of running for the lifetime of the application it runs until it updates old
-	// failed statuses or fails itself after N attempts
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		poller.RunPollFailed(ctx)
+	}()
 
 	// Twilio delivery providers (only constructed when AccountSID is configured)
 	var smsProvider notify.SMSProvider
