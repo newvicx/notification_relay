@@ -76,7 +76,7 @@ func newTestServer(t *testing.T, auth ldap.Authenticator) (*api.Server, func()) 
 	_, q := testutil.OpenDB(t)
 	queue := make(chan notify.Job, 16)
 	logger := noopLogger()
-	srv := api.NewServer(config.HTTPConfig{}, q, queue, logger, auth, okGroupVerifier(), &stubUserLookup{}, nil, testRoleConfig, []string{"test"})
+	srv := api.NewServer(config.HTTPConfig{}, q, queue, logger, auth, okGroupVerifier(), &stubUserLookup{}, testRoleConfig, []string{"test"})
 	return srv, func() {}
 }
 

@@ -21,12 +21,11 @@ type Server struct {
 	auth            ldap.Authenticator
 	groupVerifier   ldap.GroupVerifier
 	userLookup      ldap.UserLookup
-	sms             notify.SMSProvider // may be nil
 	roleConfig      map[string][]string
 	eventSeverities []string
 }
 
-func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, logger *slog.Logger, auth ldap.Authenticator, groupVerifier ldap.GroupVerifier, userLookup ldap.UserLookup, sms notify.SMSProvider, roleConfig map[string][]string, eventSeverities []string) *Server {
+func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, logger *slog.Logger, auth ldap.Authenticator, groupVerifier ldap.GroupVerifier, userLookup ldap.UserLookup, roleConfig map[string][]string, eventSeverities []string) *Server {
 	s := &Server{
 		cfg:             cfg,
 		q:               q,
@@ -35,7 +34,6 @@ func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, lo
 		auth:            auth,
 		groupVerifier:   groupVerifier,
 		userLookup:      userLookup,
-		sms:             sms,
 		roleConfig:      roleConfig,
 		eventSeverities: eventSeverities,
 	}
@@ -116,6 +114,10 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	// SMS subscription API (admin manages all; authenticated users manage their own)
 	mux.Handle("GET /api/v1/sms-subscriptions",
 		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleListSMSSubscriptions))))
+	mux.Handle("POST /api/v1/sms-subscriptions",
+		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleAdminSubscribe))))
+	mux.Handle("POST /api/v1/sms-subscriptions/me",
+		s.authenticate(http.HandlerFunc(s.handleSelfSubscribe)))
 	mux.Handle("DELETE /api/v1/sms-subscriptions/me",
 		s.authenticate(http.HandlerFunc(s.handleSelfUnsubscribe)))
 	mux.Handle("DELETE /api/v1/sms-subscriptions/{username}",

@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"html/template"
 	"net/http"
@@ -10,10 +11,11 @@ import (
 
 	"notification_relay/db"
 	ldap "notification_relay/ldap"
+	"notification_relay/notify"
 )
 
 // subscribeWelcomeMsg is sent to new subscribers via SMS.
-const subscribeWelcomeMsg = "You've been registered for emergency SMS notifications. " +
+const subscribeWelcomeMsg = "You've been registered for SMS alerts. " +
 	"Msg frequency varies. Msg & data rates may apply."
 
 var subscribeFormTmpl = template.Must(template.New("subscribe").Parse(`<!DOCTYPE html>
@@ -39,7 +41,7 @@ var subscribeFormTmpl = template.Must(template.New("subscribe").Parse(`<!DOCTYPE
 </head>
 <body>
 <h1>Register for SMS Notifications</h1>
-<p class="desc">Enter your company credentials to opt in to emergency SMS alerts sent to your company mobile phone.</p>
+<p class="desc">Enter your company credentials to opt in to SMS alerts sent to your company mobile phone.</p>
 {{if .Flash}}<div class="msg {{.FlashClass}}">{{.Flash}}</div>{{end}}
 {{if .Done}}{{else}}
 <form method="POST" action="/subscribe">
@@ -81,7 +83,7 @@ var unsubscribeFormTmpl = template.Must(template.New("unsubscribe").Parse(`<!DOC
 </head>
 <body>
 <h1>Unsubscribe from SMS Notifications</h1>
-<p class="desc">Enter your company credentials to remove yourself from emergency SMS alerts.</p>
+<p class="desc">Enter your company credentials to remove yourself from SMS alerts.</p>
 {{if .Flash}}<div class="msg {{.FlashClass}}">{{.Flash}}</div>{{end}}
 {{if .Done}}{{else}}
 <form method="POST" action="/unsubscribe">
@@ -124,7 +126,7 @@ func (s *Server) handleSubscribeSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := s.auth.AuthenticateUser(r.Context(), username, password); err != nil {
-		s.auditLog(r.Context(), username, ip, "sms_subscribe_failed")
+		s.auditLog(r.Context(), username, ip, "sms_subscribe_failed_invalid_credentials", "auth", "", "")
 		if errors.Is(err, ldap.ErrInvalidCredentials) {
 			renderPage(w, subscribeFormTmpl, formPageData{Flash: "Invalid credentials.", FlashClass: "error"})
 			return
@@ -142,7 +144,7 @@ func (s *Server) handleSubscribeSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if member.Mobile == "" {
-		s.auditLog(r.Context(), username, ip, "sms_subscribe_no_phone")
+		s.auditLog(r.Context(), username, ip, "sms_subscribe_no_phone", "auth", "", "")
 		renderPage(w, subscribeFormTmpl, formPageData{
 			Flash:      "No company mobile phone number is on record for your account. Contact IT to have your mobile number added before registering.",
 			FlashClass: "error",
@@ -180,16 +182,12 @@ func (s *Server) handleSubscribeSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.writeSubscriptionAudit(r.Context(), username, ip, "sms_subscribe", "", marshalAuditJSON(map[string]string{
+	s.auditLog(r.Context(), username, ip, "sms_subscribe", "sms_subscriptions", "", marshalAuditJSON(map[string]string{
 		"username": username,
 		"phone":    member.Mobile,
 	}))
 
-	if s.sms != nil {
-		if _, _, err := s.sms.Send(member.Mobile, subscribeWelcomeMsg); err != nil {
-			s.logger.Warn("subscribe: welcome SMS failed", "username", username, "error", err)
-		}
-	}
+	sendWelcomeSMS(r.Context(), s, username, member.Mobile)
 
 	renderPage(w, subscribeFormTmpl, formPageData{
 		Flash:      "You have been successfully registered for SMS notifications.",
@@ -217,7 +215,7 @@ func (s *Server) handleUnsubscribeSubmit(w http.ResponseWriter, r *http.Request)
 	}
 
 	if _, err := s.auth.AuthenticateUser(r.Context(), username, password); err != nil {
-		s.auditLog(r.Context(), username, ip, "sms_unsubscribe_failed")
+		s.auditLog(r.Context(), username, ip, "sms_unsubscribe_failed_invalid_credentials", "auth", "", "")
 		if errors.Is(err, ldap.ErrInvalidCredentials) {
 			renderPage(w, unsubscribeFormTmpl, formPageData{Flash: "Invalid credentials.", FlashClass: "error"})
 			return
@@ -243,7 +241,7 @@ func (s *Server) handleUnsubscribeSubmit(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	s.writeSubscriptionAudit(r.Context(), username, ip, "sms_unsubscribe", marshalAuditJSON(map[string]string{
+	s.auditLog(r.Context(), username, ip, "sms_unsubscribe", "sms_subscriptions", marshalAuditJSON(map[string]string{
 		"username": username,
 		"phone":    existing.Phone,
 	}), "")
@@ -255,21 +253,39 @@ func (s *Server) handleUnsubscribeSubmit(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// writeSubscriptionAudit writes an audit entry for subscription mutations from
-// form handlers that have no authenticated User in context. Username and IP are
-// taken directly from the form submission flow.
-func (s *Server) writeSubscriptionAudit(ctx context.Context, username, ip, action, oldJSON, newJSON string) {
-	err := s.q.InsertAuditLog(ctx, db.InsertAuditLogParams{
-		Timestamp:     time.Now().UTC().Format(time.RFC3339),
-		Username:      username,
-		IpAddress:     sql.NullString{String: ip, Valid: ip != ""},
-		Action:        action,
-		ImpactedTable: "sms_subscriptions",
-		OldValues:     sql.NullString{String: oldJSON, Valid: oldJSON != ""},
-		NewValues:     sql.NullString{String: newJSON, Valid: newJSON != ""},
+// sendWelcomeSMS enqueues a welcome SMS notification for a newly subscribed user.
+// The phone must already be in sms_subscriptions so the dispatcher gate passes.
+// Errors are logged but do not block the caller.
+func sendWelcomeSMS(ctx context.Context, s *Server, username, phone string) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	welcomeNotifID := newUUIDV7()
+	welcomeEventID := "sms-welcome-" + username
+
+	_, _ = s.q.InsertEvent(ctx, db.InsertEventParams{
+		EventID:   welcomeEventID,
+		StartTime: now,
+		CreatedAt: now,
 	})
-	if err != nil {
-		s.logger.Error("failed to write audit log", "action", action, "username", username, "error", err)
+
+	destsJSON, _ := json.Marshal([]map[string]string{{"channel": "sms", "target": phone}})
+	channelsJSON, _ := json.Marshal([]string{"sms"})
+
+	if _, err := s.q.InsertNotification(ctx, db.InsertNotificationParams{
+		NotificationID: welcomeNotifID,
+		EventID:        welcomeEventID,
+		Destinations:   sql.NullString{String: string(destsJSON), Valid: true},
+		Channels:       sql.NullString{String: string(channelsJSON), Valid: true},
+		Message:        subscribeWelcomeMsg,
+		Status:         "pending",
+		CreatedAt:      now,
+	}); err != nil {
+		s.logger.Warn("subscribe: failed to create welcome notification", "username", username, "error", err)
+		return
+	}
+	select {
+	case s.queue <- notify.Job{NotificationID: welcomeNotifID}:
+	default:
+		s.logger.Warn("subscribe: job queue full, welcome SMS dropped", "username", username)
 	}
 }
 
