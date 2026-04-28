@@ -45,7 +45,7 @@ func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, lo
 	if fileExists(cfg.SpecPath) {
 		spec, err := os.ReadFile("openapi.yaml")
 		if err != nil {
-			logger.Error("Failed to read openapi.yaml: %v", err)
+			logger.Error("Failed to read openapi.yaml", "error", err)
 		} else {
 			mux.Handle("GET /docs", swaggerui.Handler(spec))
 		}
