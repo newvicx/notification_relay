@@ -114,20 +114,6 @@ func toNotificationResponse(n db.Notification) (notificationResponse, error) {
 	}, nil
 }
 
-type smsSubscriptionResponse struct {
-	Username     string `json:"username"`
-	Phone        string `json:"phone"`
-	SubscribedAt string `json:"subscribed_at"`
-}
-
-func toSMSSubscriptionResponse(s db.SmsSubscription) smsSubscriptionResponse {
-	return smsSubscriptionResponse{
-		Username:     s.Username,
-		Phone:        s.Phone,
-		SubscribedAt: s.SubscribedAt,
-	}
-}
-
 func toDeliveryResponse(d db.Delivery) (deliveryResponse, error) {
 	emailVars := map[string]any{}
 	if d.EmailVars.Valid {

@@ -259,25 +259,27 @@ func (s *Server) handleUnsubscribeSubmit(w http.ResponseWriter, r *http.Request)
 func sendWelcomeSMS(ctx context.Context, s *Server, username, phone string) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	welcomeNotifID := newUUIDV7()
-	welcomeEventID := "sms-welcome-" + username
+	welcomeEventID := newUUIDV7()
+	eventName := "SMS Welcome: " + username
 
 	_, _ = s.q.InsertEvent(ctx, db.InsertEventParams{
 		EventID:   welcomeEventID,
+		EventName: nullString(eventName),
 		StartTime: now,
 		CreatedAt: now,
+		CreatedBy: nullString("system"),
 	})
 
 	destsJSON, _ := json.Marshal([]map[string]string{{"channel": "sms", "target": phone}})
-	channelsJSON, _ := json.Marshal([]string{"sms"})
 
 	if _, err := s.q.InsertNotification(ctx, db.InsertNotificationParams{
 		NotificationID: welcomeNotifID,
 		EventID:        welcomeEventID,
 		Destinations:   sql.NullString{String: string(destsJSON), Valid: true},
-		Channels:       sql.NullString{String: string(channelsJSON), Valid: true},
 		Message:        subscribeWelcomeMsg,
 		Status:         "pending",
 		CreatedAt:      now,
+		CreatedBy:      nullString("system"),
 	}); err != nil {
 		s.logger.Warn("subscribe: failed to create welcome notification", "username", username, "error", err)
 		return

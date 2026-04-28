@@ -10,6 +10,20 @@ import (
 	ldap "notification_relay/ldap"
 )
 
+type smsSubscriptionResponse struct {
+	Username     string `json:"username"`
+	Phone        string `json:"phone"`
+	SubscribedAt string `json:"subscribed_at"`
+}
+
+func toSMSSubscriptionResponse(s db.SmsSubscription) smsSubscriptionResponse {
+	return smsSubscriptionResponse{
+		Username:     s.Username,
+		Phone:        s.Phone,
+		SubscribedAt: s.SubscribedAt,
+	}
+}
+
 func (s *Server) handleListSMSSubscriptions(w http.ResponseWriter, r *http.Request) {
 	subs, err := s.q.ListSMSSubscriptions(r.Context())
 	if err != nil {
