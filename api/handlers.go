@@ -203,9 +203,16 @@ func (s *Server) handlePublishNotification(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		oldEvent := event
+		publishUser, _ := UserFromContext(ctx)
+		publishCreatedBy := ""
+		if publishUser != nil {
+			publishCreatedBy = publishUser.Username
+		}
 		if err := s.q.UpdateEventEndTime(ctx, db.UpdateEventEndTimeParams{
-			EndTime: sql.NullString{String: endTime, Valid: true},
-			EventID: event.EventID,
+			EndTime:    nullString(endTime),
+			ModifiedBy: nullString(publishCreatedBy),
+			ModifiedAt: nullString(time.Now().UTC().Format(time.RFC3339)),
+			EventID:    event.EventID,
 		}); err != nil {
 			s.logger.Error("publish: update event end time failed", "event_id", event.EventID, "error", err)
 			http.Error(w, "internal server error", http.StatusInternalServerError)

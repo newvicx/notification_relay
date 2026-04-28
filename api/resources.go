@@ -452,9 +452,17 @@ func (s *Server) handleEndEvent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	user, _ := UserFromContext(r.Context())
+	modifiedBy := ""
+	if user != nil {
+		modifiedBy = user.Username
+	}
+
 	if err := s.q.UpdateEventEndTime(r.Context(), db.UpdateEventEndTimeParams{
-		EndTime: sql.NullString{String: endTime, Valid: true},
-		EventID: eventID,
+		EndTime:    sql.NullString{String: endTime, Valid: true},
+		ModifiedBy: nullString(modifiedBy),
+		ModifiedAt: nullString(time.Now().UTC().Format(time.RFC3339)),
+		EventID:    eventID,
 	}); err != nil {
 		s.logger.Error("end event: update failed", "event_id", eventID, "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
