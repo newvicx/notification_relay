@@ -30,6 +30,7 @@ type HTTPConfig struct {
 	ReadTimeout     time.Duration `yaml:"read_timeout"`
 	WriteTimeout    time.Duration `yaml:"write_timeout"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
+	SpecPath        string        `yaml:"spec_path"`
 }
 
 type LDAPConfig struct {
@@ -175,6 +176,7 @@ func defaults() *Config {
 			ReadTimeout:     30 * time.Second,
 			WriteTimeout:    30 * time.Second,
 			ShutdownTimeout: 15 * time.Second,
+			SpecPath:        "openapi.yaml",
 		},
 		LDAP: LDAPConfig{
 			GroupFilter:   "(objectClass=group)",

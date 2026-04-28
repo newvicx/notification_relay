@@ -2,8 +2,12 @@ package api
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
+	"os"
+
+	"github.com/flowchartsman/swaggerui"
 
 	"notification_relay/config"
 	"notification_relay/db"
@@ -38,6 +42,14 @@ func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, lo
 		eventSeverities: eventSeverities,
 	}
 	mux := http.NewServeMux()
+	if fileExists(cfg.SpecPath) {
+		spec, err := os.ReadFile("openapi.yaml")
+		if err != nil {
+			logger.Error("Failed to read openapi.yaml: %v", err)
+		} else {
+			mux.Handle("GET /docs", swaggerui.Handler(spec))
+		}
+	}
 	s.registerRoutes(mux)
 	s.srv = &http.Server{
 		Addr:         cfg.ListenAddr,
@@ -139,4 +151,15 @@ func (s *Server) Start() error {
 // in-flight requests to complete.
 func (s *Server) Shutdown(ctx context.Context) error {
 	return s.srv.Shutdown(ctx)
+}
+
+func fileExists(filename string) bool {
+	_, err := os.Stat(filename)
+	if err == nil {
+		return true // File exists
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false // File does not exist
+	}
+	return false // Other error (permission denied, etc.)
 }
