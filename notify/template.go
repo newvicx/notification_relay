@@ -60,16 +60,21 @@ func renderOne(name, src string, vars map[string]any) (string, error) {
 // reference in src. It matches {{.varName}}, {{.varName.sub}}, {{.varName | f}},
 // etc., but not a name that merely has varName as a prefix (e.g. {{.varNameExtra}}).
 func containsFieldRef(src, varName string) bool {
-	needle := "{{." + varName
-	altNeedle := "{{ ." + varName
+	f1 := "{{." + varName
+	f2 := "{{ ." + varName
+	var needle string
 	s := src
 	for {
-		i := strings.Index(s, needle)
+		i := strings.Index(s, f1)
 		if i == -1 {
-			i = strings.Index(s, altNeedle)
+			i = strings.Index(s, f2)
 			if i == -1 {
 				return false
+			} else {
+				needle = f2
 			}
+		} else {
+			needle = f1
 		}
 		rest := s[i+len(needle):]
 		if len(rest) > 0 {

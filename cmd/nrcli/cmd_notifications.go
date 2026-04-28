@@ -84,15 +84,14 @@ func runNotificationsPublish(cfg *Config, args []string) {
 	startTime := fs.String("start-time", "", "event start time (RFC3339)")
 	endTime := fs.String("end-time", "", "event end time (RFC3339); marks the event as ended")
 	emailTemplate := fs.String("email-template", "", "email template name (required when channel includes email)")
+	emailVars := fs.String("email-vars", "", "template variables as a JSON string")
 
 	var groups stringSlice
 	var channels stringSlice
 	var destinations destinationSlice
-	var emailVars kvMap
 	fs.Var(&groups, "group", "LDAP group to notify (repeat for multiple)")
 	fs.Var(&channels, "channel", "delivery channel for groups: sms, voice, email (repeat for multiple)")
 	fs.Var(&destinations, "destination", "direct delivery target as CHANNEL:TARGET (repeat for multiple)")
-	fs.Var(&emailVars, "email-var", "template variable as KEY=VALUE (repeat for multiple)")
 
 	fs.Usage = func() { fmt.Fprint(os.Stderr, notificationsUsage) }
 	parseFlags(fs, args)
@@ -143,8 +142,12 @@ func runNotificationsPublish(cfg *Config, args []string) {
 	if *emailTemplate != "" {
 		req["email_template"] = *emailTemplate
 	}
-	if len(emailVars) > 0 {
-		req["email_vars"] = map[string]string(emailVars)
+	if *emailVars != "" {
+		var unMarshaled map[string]any
+		if err := json.Unmarshal([]byte(*emailVars), &unMarshaled); err != nil {
+			die(err)
+		}
+		req["email_vars"] = unMarshaled
 	}
 
 	_, body, err := NewClient(cfg).Post("/api/v1/notifications", req)

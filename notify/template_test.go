@@ -18,7 +18,7 @@ func TestValidateTemplate_Valid(t *testing.T) {
 
 func TestValidateTemplate_RequiredVarInSubjectOnly(t *testing.T) {
 	err := ValidateTemplate(
-		"Alert: {{.severity}}",
+		"Alert: {{ .severity }}",
 		"<p>An alert occurred.</p>",
 		[]string{"severity"},
 	)
