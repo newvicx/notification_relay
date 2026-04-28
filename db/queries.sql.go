@@ -1328,16 +1328,23 @@ func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) (Event
 }
 
 const updateEventEndTime = `-- name: UpdateEventEndTime :exec
-UPDATE events SET end_time = ? WHERE event_id = ?
+UPDATE events SET end_time = ?, modified_at = ?, modified_by = ? WHERE event_id = ?
 `
 
 type UpdateEventEndTimeParams struct {
-	EndTime sql.NullString `json:"end_time"`
-	EventID string         `json:"event_id"`
+	EndTime    sql.NullString `json:"end_time"`
+	ModifiedAt sql.NullString `json:"modified_at"`
+	ModifiedBy sql.NullString `json:"modified_by"`
+	EventID    string         `json:"event_id"`
 }
 
 func (q *Queries) UpdateEventEndTime(ctx context.Context, arg UpdateEventEndTimeParams) error {
-	_, err := q.db.ExecContext(ctx, updateEventEndTime, arg.EndTime, arg.EventID)
+	_, err := q.db.ExecContext(ctx, updateEventEndTime,
+		arg.EndTime,
+		arg.ModifiedAt,
+		arg.ModifiedBy,
+		arg.EventID,
+	)
 	return err
 }
 

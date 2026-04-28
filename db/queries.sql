@@ -44,7 +44,7 @@ SELECT * FROM events WHERE id = ?;
 SELECT * FROM events WHERE event_id = ?;
 
 -- name: UpdateEventEndTime :exec
-UPDATE events SET end_time = ? WHERE event_id = ?;
+UPDATE events SET end_time = ?, modified_at = ?, modified_by = ? WHERE event_id = ?;
 
 -- name: ListEvents :many
 SELECT * FROM events ORDER BY start_time DESC LIMIT ? OFFSET ?;
