@@ -30,7 +30,7 @@ Flags for 'publish':
   --start-time TIME       Event start time (RFC3339; default: now)
   --end-time TIME         Event end time (RFC3339); marks the event as ended
   --email-template TMPL   Email template name (required when any channel is email)
-  --email-var K=V         Template variable; repeat for multiple (e.g. --email-var host=web-01)
+  --email-vars JSON       Template variables defined as a JSON string ("{\"test\": 1}")
 
 At least one --group or --destination must be provided.
 
@@ -42,7 +42,7 @@ Examples:
     --channel sms --channel email \
     --message "Disk usage above 90% on web-01" \
     --email-template alert-standard \
-    --email-var host=web-01
+    --email-vars "{\"host\": \"web-01\"}"
 
   # Notify a direct phone number and email address
   nrcli notifications publish \
