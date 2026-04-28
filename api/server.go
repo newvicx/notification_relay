@@ -43,12 +43,14 @@ func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, lo
 	}
 	mux := http.NewServeMux()
 	if fileExists(cfg.SpecPath) {
-		spec, err := os.ReadFile("openapi.yaml")
+		spec, err := os.ReadFile(cfg.SpecPath)
 		if err != nil {
-			logger.Error("Failed to read openapi.yaml", "error", err)
+			logger.Error("failed to read openapi.yaml", "error", err)
 		} else {
-			mux.Handle("GET /docs", swaggerui.Handler(spec))
+			mux.Handle("GET /docs/", http.StripPrefix("/docs", swaggerui.Handler(spec)))
 		}
+	} else {
+		logger.Info("did not load openAPI spec")
 	}
 	s.registerRoutes(mux)
 	s.srv = &http.Server{
