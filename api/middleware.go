@@ -32,7 +32,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 
 		result, err := s.auth.AuthenticateUser(r.Context(), username, password)
 		if err != nil {
-			s.auditLog(r.Context(), username, ip, "login_failed")
+			s.auditLog(r.Context(), username, ip, "login_failed", "auth", "", "")
 			if errors.Is(err, ldap.ErrInvalidCredentials) {
 				w.Header().Set("WWW-Authenticate", `Basic realm="notification-relay"`)
 				http.Error(w, "invalid credentials", http.StatusUnauthorized)
@@ -46,7 +46,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 		roles := resolveRoles(result.Groups, s.roleConfig)
 		user := &User{Username: username, DN: result.UserDN, Roles: roles}
 
-		s.auditLog(r.Context(), username, ip, "login")
+		s.auditLog(r.Context(), username, ip, "login", "auth", "", "")
 
 		ctx := context.WithValue(r.Context(), ctxKey{}, user)
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -114,15 +114,15 @@ func marshalAuditJSON(v any) string {
 
 // auditLog writes a single audit entry to the database. Errors are logged but
 // do not affect the HTTP response — audit failures must not block requests.
-func (s *Server) auditLog(ctx context.Context, username, ip, action string) {
+func (s *Server) auditLog(ctx context.Context, username, ip, action, impactedTable, oldJSON, newJSON string) {
 	err := s.q.InsertAuditLog(ctx, db.InsertAuditLogParams{
 		Timestamp:     time.Now().UTC().Format(time.RFC3339),
 		Username:      username,
 		IpAddress:     sql.NullString{String: ip, Valid: ip != ""},
 		Action:        action,
-		ImpactedTable: "auth",
-		OldValues:     sql.NullString{},
-		NewValues:     sql.NullString{},
+		ImpactedTable: impactedTable,
+		OldValues:     sql.NullString{String: oldJSON, Valid: oldJSON != ""},
+		NewValues:     sql.NullString{String: newJSON, Valid: newJSON != ""},
 	})
 	if err != nil {
 		s.logger.Error("failed to write audit log",

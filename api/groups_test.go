@@ -29,7 +29,7 @@ func newAdminServerWithQ(t *testing.T) (*api.Server, *db.Queries) {
 	queue := make(chan notify.Job, 16)
 	srv := api.NewServer(config.HTTPConfig{}, q, queue, noopLogger(),
 		&stubAuth{result: &ldap.AuthResult{UserDN: "CN=admin,DC=example,DC=com", Groups: []string{"grp-admins"}}},
-		okGroupVerifier(), roleConfig, []string{"test"})
+		okGroupVerifier(), &stubUserLookup{}, roleConfig, []string{"test"})
 	return srv, q
 }
 

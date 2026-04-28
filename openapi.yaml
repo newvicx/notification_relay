@@ -39,6 +39,8 @@ tags:
     description: Manage email templates used for email-channel deliveries
   - name: Audit
     description: Admin-only audit log of all user actions
+  - name: SMS Subscriptions
+    description: Manage SMS opt-in subscriptions for toll-free number compliance
 
 components:
   securitySchemes:
@@ -98,6 +100,14 @@ components:
       name: template_name
       in: path
       required: true
+      schema:
+        type: string
+
+    subscription_username:
+      name: username
+      in: path
+      required: true
+      description: The username of the subscriber
       schema:
         type: string
 
@@ -248,7 +258,9 @@ components:
           enum: [sms, voice, email]
         status:
           type: string
-          description: Current delivery status
+          description: |
+            Current delivery status. Well-known terminal values: `delivered`, `failed`,
+            `not_subscribed` (SMS withheld because the recipient has not opted in)
         email_template:
           type: string
           nullable: true
@@ -370,6 +382,25 @@ components:
         created_at: "2026-04-15T10:00:00Z"
         created_by: "alice"
 
+    SMSSubscription:
+      type: object
+      required: [username, phone, subscribed_at]
+      properties:
+        username:
+          type: string
+          description: The subscribed user's LDAP username
+        phone:
+          type: string
+          description: Mobile phone number in E.164 format
+        subscribed_at:
+          type: string
+          format: date-time
+          description: When the user opted in (RFC3339)
+      example:
+        username: "jsmith"
+        phone: "+15551234567"
+        subscribed_at: "2026-04-28T10:00:00Z"
+
     AuditLogEntry:
       type: object
       required: [id, timestamp, username, action, impacted_table]
@@ -392,10 +423,13 @@ components:
             `login`, `login_failed`, `create_event`, `update_event`, `end_event`,
             `create_notification`,
             `create_template`, `update_template`, `delete_template`,
-            `create_sync_group`, `delete_sync_group`
+            `create_sync_group`, `delete_sync_group`,
+            `sms_subscribe`, `sms_subscribe_failed_invalid_credentials`,
+            `sms_unsubscribe`, `sms_unsubscribe_failed_invalid_credentials`,
+            `sms_subscription_deleted`
         impacted_table:
           type: string
-          description: Database table affected (e.g. `events`, `notifications`, `email_templates`, `auth`)
+          description: Database table affected (e.g. `events`, `notifications`, `email_templates`, `auth`, `sms_subscriptions`)
         old_values:
           type: string
           description: JSON snapshot of the record before the mutation; omitted for creates
@@ -1161,5 +1195,147 @@ paths:
           description: Forbidden — requires admin role
         "404":
           description: Template not found
+        "500":
+          description: Internal server error
+
+  /api/v1/sms-subscriptions:
+    get:
+      summary: List SMS subscriptions
+      description: Returns all users who have opted in to SMS notifications. Requires admin role.
+      operationId: listSMSSubscriptions
+      tags: [SMS Subscriptions]
+      responses:
+        "200":
+          description: All SMS subscribers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SMSSubscription"
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires admin role
+        "500":
+          description: Internal server error
+
+    post:
+      summary: Subscribe a user (admin)
+      description: |
+        Looks up the user's mobile number in LDAP and adds them to the SMS
+        subscription list. Returns the existing subscription if the user is
+        already subscribed. Also sends the user a welcome SMS via the
+        dispatcher. Requires admin role.
+      operationId: adminSubscribe
+      tags: [SMS Subscriptions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username]
+              properties:
+                username:
+                  type: string
+                  description: LDAP username to subscribe
+            example:
+              username: "jsmith"
+      responses:
+        "201":
+          description: Subscription created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SMSSubscription"
+        "200":
+          description: User was already subscribed; existing record returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SMSSubscription"
+        "400":
+          description: Missing or invalid request body
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires admin role
+        "404":
+          description: User not found in LDAP
+        "422":
+          description: User has no mobile number on record, or number is not E.164
+        "500":
+          description: Internal server error
+
+  /api/v1/sms-subscriptions/me:
+    post:
+      summary: Subscribe self
+      description: |
+        Looks up the authenticated user's mobile number in LDAP and adds them
+        to the SMS subscription list. Returns the existing subscription if
+        already subscribed. Also sends a welcome SMS via the dispatcher.
+        Any authenticated user may call this endpoint.
+      operationId: selfSubscribe
+      tags: [SMS Subscriptions]
+      responses:
+        "201":
+          description: Subscription created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SMSSubscription"
+        "200":
+          description: Already subscribed; existing record returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SMSSubscription"
+        "401":
+          description: Authentication required or invalid credentials
+        "404":
+          description: Authenticated user not found in LDAP
+        "422":
+          description: You have no mobile number on record, or the number is not E.164
+        "500":
+          description: Internal server error
+
+    delete:
+      summary: Unsubscribe self
+      description: |
+        Removes the authenticated user's own SMS subscription. Any authenticated
+        user may call this endpoint — no admin role required.
+      operationId: selfUnsubscribe
+      tags: [SMS Subscriptions]
+      responses:
+        "204":
+          description: Subscription removed
+        "401":
+          description: Authentication required or invalid credentials
+        "404":
+          description: You are not currently subscribed
+        "500":
+          description: Internal server error
+
+  /api/v1/sms-subscriptions/{username}:
+    parameters:
+      - $ref: "#/components/parameters/subscription_username"
+
+    delete:
+      summary: Remove a subscription (admin)
+      description: Removes any user's SMS subscription. Requires admin role.
+      operationId: adminDeleteSubscription
+      tags: [SMS Subscriptions]
+      responses:
+        "204":
+          description: Subscription removed
+        "400":
+          description: username is required
+        "401":
+          description: Authentication required or invalid credentials
+        "403":
+          description: Forbidden — requires admin role
+        "404":
+          description: Subscription not found
         "500":
           description: Internal server error

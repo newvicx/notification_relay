@@ -28,7 +28,7 @@ func newAdminTestServer(t *testing.T) (*api.Server, func()) {
 	}
 	_, q := testutil.OpenDB(t)
 	queue := make(chan notify.Job, 16)
-	srv := api.NewServer(config.HTTPConfig{}, q, queue, noopLogger(), adminAuth(), okGroupVerifier(), roleConfig, []string{"test"})
+	srv := api.NewServer(config.HTTPConfig{}, q, queue, noopLogger(), adminAuth(), okGroupVerifier(), &stubUserLookup{}, roleConfig, []string{"test"})
 	return srv, func() {}
 }
 

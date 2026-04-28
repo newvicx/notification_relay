@@ -145,8 +145,18 @@ func main() {
 		cfg.LDAP.TLSSkipVerify,
 	)
 
+	// LDAP user lookup (used by the SMS subscription form to fetch mobile numbers)
+	userLookup := ldapsync.NewUserLookup(
+		cfg.LDAP.PrimaryURL,
+		cfg.LDAP.BackupURL,
+		cfg.LDAP.BindDN,
+		cfg.LDAP.BindPassword,
+		cfg.LDAP.UserBaseDN,
+		cfg.LDAP.TLSSkipVerify,
+	)
+
 	// HTTP server
-	srv := api.NewServer(cfg.HTTP, writerQ, jobQueue, logger, ldapAuth, groupVerifier, cfg.LDAP.Roles, cfg.Severities)
+	srv := api.NewServer(cfg.HTTP, writerQ, jobQueue, logger, ldapAuth, groupVerifier, userLookup, cfg.LDAP.Roles, cfg.Severities)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

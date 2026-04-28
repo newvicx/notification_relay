@@ -24,6 +24,7 @@ Commands:
   groups             View LDAP group membership and manage sync configuration
   templates          Manage email templates
   audit              View audit log (admin only)
+  subscriptions      Manage SMS subscriptions
 
 Run 'nrcli <command>' for subcommand help.
 
@@ -86,6 +87,8 @@ func main() {
 		runTemplates(cfg, args[1:])
 	case "audit":
 		runAudit(cfg, args[1:])
+	case "subscriptions":
+		runSubscriptions(cfg, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "error: unknown command %q\n\n", args[0])
 		fs.Usage()

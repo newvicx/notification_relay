@@ -45,6 +45,16 @@ func (s *stubGroupVerifier) VerifyGroup(_ context.Context, _ string) error {
 // okGroupVerifier returns a stub that always reports the group as valid.
 func okGroupVerifier() *stubGroupVerifier { return &stubGroupVerifier{} }
 
+// stubUserLookup is a configurable stub for ldap.UserLookup.
+type stubUserLookup struct {
+	member *ldap.Member
+	err    error
+}
+
+func (s *stubUserLookup) LookupUser(_ context.Context, _ string) (*ldap.Member, error) {
+	return s.member, s.err
+}
+
 // roleConfig used across all server tests.
 var testRoleConfig = map[string][]string{
 	"publisher": {"grp-pub"},
@@ -66,7 +76,7 @@ func newTestServer(t *testing.T, auth ldap.Authenticator) (*api.Server, func()) 
 	_, q := testutil.OpenDB(t)
 	queue := make(chan notify.Job, 16)
 	logger := noopLogger()
-	srv := api.NewServer(config.HTTPConfig{}, q, queue, logger, auth, okGroupVerifier(), testRoleConfig, []string{"test"})
+	srv := api.NewServer(config.HTTPConfig{}, q, queue, logger, auth, okGroupVerifier(), &stubUserLookup{}, testRoleConfig, []string{"test"})
 	return srv, func() {}
 }
 

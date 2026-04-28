@@ -530,6 +530,40 @@ func printSyncGroupDetail(g SyncGroup) {
 	w.Flush()
 }
 
+// ── SMS Subscriptions ─────────────────────────────────────────────────────────
+
+// SMSSubscription mirrors api.smsSubscriptionResponse.
+type SMSSubscription struct {
+	Username     string `json:"username"`
+	Phone        string `json:"phone"`
+	SubscribedAt string `json:"subscribed_at"`
+}
+
+func printSMSSubscriptionList(subs []SMSSubscription) {
+	if len(subs) == 0 {
+		fmt.Println("No SMS subscriptions found.")
+		return
+	}
+	w := newTabWriter()
+	fmt.Fprintln(w, "USERNAME\tPHONE\tSUBSCRIBED AT")
+	for _, s := range subs {
+		fmt.Fprintf(w, "%s\t%s\t%s\n",
+			s.Username,
+			s.Phone,
+			shortTime(s.SubscribedAt),
+		)
+	}
+	w.Flush()
+}
+
+func printSMSSubscriptionDetail(s SMSSubscription) {
+	w := newTabWriter()
+	fmt.Fprintf(w, "Username:\t%s\n", s.Username)
+	fmt.Fprintf(w, "Phone:\t%s\n", s.Phone)
+	fmt.Fprintf(w, "Subscribed At:\t%s\n", shortTime(s.SubscribedAt))
+	w.Flush()
+}
+
 // ── Event summary ─────────────────────────────────────────────────────────────
 
 // printEventSummary renders the full joined event → notifications → deliveries

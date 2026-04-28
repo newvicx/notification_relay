@@ -28,6 +28,15 @@ func (q *Queries) DeleteGroupMembers(ctx context.Context, groupName string) erro
 	return err
 }
 
+const deleteSMSSubscription = `-- name: DeleteSMSSubscription :exec
+DELETE FROM sms_subscriptions WHERE username = ?
+`
+
+func (q *Queries) DeleteSMSSubscription(ctx context.Context, username string) error {
+	_, err := q.db.ExecContext(ctx, deleteSMSSubscription, username)
+	return err
+}
+
 const deleteSyncGroup = `-- name: DeleteSyncGroup :exec
 DELETE FROM sync_groups WHERE group_name = ?
 `
@@ -204,6 +213,30 @@ func (q *Queries) GetNotificationByNotificationID(ctx context.Context, notificat
 		&i.CreatedAt,
 		&i.CreatedBy,
 	)
+	return i, err
+}
+
+const getSMSSubscription = `-- name: GetSMSSubscription :one
+
+SELECT username, phone, subscribed_at FROM sms_subscriptions WHERE username = ?
+`
+
+// sms_subscriptions
+func (q *Queries) GetSMSSubscription(ctx context.Context, username string) (SmsSubscription, error) {
+	row := q.db.QueryRowContext(ctx, getSMSSubscription, username)
+	var i SmsSubscription
+	err := row.Scan(&i.Username, &i.Phone, &i.SubscribedAt)
+	return i, err
+}
+
+const getSMSSubscriptionByPhone = `-- name: GetSMSSubscriptionByPhone :one
+SELECT username, phone, subscribed_at FROM sms_subscriptions WHERE phone = ?
+`
+
+func (q *Queries) GetSMSSubscriptionByPhone(ctx context.Context, phone string) (SmsSubscription, error) {
+	row := q.db.QueryRowContext(ctx, getSMSSubscriptionByPhone, phone)
+	var i SmsSubscription
+	err := row.Scan(&i.Username, &i.Phone, &i.SubscribedAt)
 	return i, err
 }
 
@@ -588,6 +621,21 @@ func (q *Queries) InsertNotification(ctx context.Context, arg InsertNotification
 		&i.CreatedBy,
 	)
 	return i, err
+}
+
+const insertSMSSubscription = `-- name: InsertSMSSubscription :exec
+INSERT INTO sms_subscriptions (username, phone, subscribed_at) VALUES (?, ?, ?)
+`
+
+type InsertSMSSubscriptionParams struct {
+	Username     string `json:"username"`
+	Phone        string `json:"phone"`
+	SubscribedAt string `json:"subscribed_at"`
+}
+
+func (q *Queries) InsertSMSSubscription(ctx context.Context, arg InsertSMSSubscriptionParams) error {
+	_, err := q.db.ExecContext(ctx, insertSMSSubscription, arg.Username, arg.Phone, arg.SubscribedAt)
+	return err
 }
 
 const insertSyncGroup = `-- name: InsertSyncGroup :one
@@ -1078,6 +1126,33 @@ func (q *Queries) ListPollFailedDeliveries(ctx context.Context) ([]Delivery, err
 			&i.CompletedAt,
 			&i.TwilioSid,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSMSSubscriptions = `-- name: ListSMSSubscriptions :many
+SELECT username, phone, subscribed_at FROM sms_subscriptions ORDER BY subscribed_at DESC
+`
+
+func (q *Queries) ListSMSSubscriptions(ctx context.Context) ([]SmsSubscription, error) {
+	rows, err := q.db.QueryContext(ctx, listSMSSubscriptions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SmsSubscription
+	for rows.Next() {
+		var i SmsSubscription
+		if err := rows.Scan(&i.Username, &i.Phone, &i.SubscribedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -148,13 +148,29 @@ func (d *Dispatcher) processJob(ctx context.Context, job Job) {
 		totalMembers += len(members)
 		for _, member := range members {
 			if channelSet["sms"] && d.sms != nil && member.Mobile.Valid && member.Mobile.String != "" {
-				wg.Add(1)
-				go func(g string, m db.GroupMember) {
-					defer wg.Done()
-					d.sem <- struct{}{}
-					defer func() { <-d.sem }()
-					d.dispatchSMS(ctx, notif, g, m)
-				}(group, member)
+				if _, err := d.q.GetSMSSubscription(ctx, member.Username); err == nil {
+					wg.Add(1)
+					go func(g string, m db.GroupMember) {
+						defer wg.Done()
+						d.sem <- struct{}{}
+						defer func() { <-d.sem }()
+						d.dispatchSMS(ctx, notif, g, m)
+					}(group, member)
+				} else {
+					d.logger.Debug("sms withheld: not subscribed", "member", member.Username)
+					if _, err := d.q.InsertDelivery(ctx, db.InsertDeliveryParams{
+						DeliveryID:     uuidV7(),
+						NotificationID: notif.NotificationID,
+						Group:          sql.NullString{String: group, Valid: true},
+						Member:         sql.NullString{String: member.Username, Valid: true},
+						Channel:        "sms",
+						Status:         "not_subscribed",
+						Attempt:        0,
+						SentAt:         time.Now().UTC().Format(time.RFC3339),
+					}); err != nil {
+						d.logger.Error("dispatcher: insert not_subscribed delivery failed", "member", member.Username, "error", err)
+					}
+				}
 			}
 			if channelSet["voice"] && d.voice != nil && ((member.Mobile.Valid && member.Mobile.String != "") || (member.Work.Valid && member.Work.String != "")) {
 				wg.Add(1)
@@ -186,7 +202,22 @@ func (d *Dispatcher) processJob(ctx context.Context, job Job) {
 			switch dst.Channel {
 			case "sms":
 				if d.sms != nil {
-					d.dispatchSMSToDestination(ctx, notif, dst.Target)
+					if _, err := d.q.GetSMSSubscriptionByPhone(ctx, dst.Target); err == nil {
+						d.dispatchSMSToDestination(ctx, notif, dst.Target)
+					} else {
+						d.logger.Warn("sms destination withheld: phone not registered", "target", dst.Target)
+						if _, err := d.q.InsertDestinationDelivery(ctx, db.InsertDestinationDeliveryParams{
+							DeliveryID:     uuidV7(),
+							NotificationID: notif.NotificationID,
+							Destination:    sql.NullString{String: dst.Target, Valid: true},
+							Channel:        "sms",
+							Status:         "not_subscribed",
+							Attempt:        0,
+							SentAt:         time.Now().UTC().Format(time.RFC3339),
+						}); err != nil {
+							d.logger.Error("dispatcher: insert not_subscribed delivery failed", "target", dst.Target, "error", err)
+						}
+					}
 				}
 			case "voice":
 				if d.voice != nil {
