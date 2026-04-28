@@ -60,6 +60,8 @@ func renderOne(name, src string, vars map[string]any) (string, error) {
 // reference in src. It matches {{.varName}}, {{.varName.sub}}, {{.varName | f}},
 // etc., but not a name that merely has varName as a prefix (e.g. {{.varNameExtra}}).
 func containsFieldRef(src, varName string) bool {
+	// TODO: This doesn't work for conditionals or other control flows ({{ if .attr }})
+	// 'attr' wont be found if called out as a required var
 	f1 := "{{." + varName
 	f2 := "{{ ." + varName
 	var needle string
