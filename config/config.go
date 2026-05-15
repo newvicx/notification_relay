@@ -10,14 +10,15 @@ import (
 )
 
 type Config struct {
-	Database   DatabaseConfig `yaml:"database"`
-	HTTP       HTTPConfig     `yaml:"http"`
-	LDAP       LDAPConfig     `yaml:"ldap"`
-	Twilio     TwilioConfig   `yaml:"twilio"`
-	SMTP       SMTPConfig     `yaml:"smtp"`
-	Notify     NotifyConfig   `yaml:"notify"`
-	Logging    LoggingConfig  `yaml:"logging"`
-	Severities []string       `yaml:"severities"`
+	Database   DatabaseConfig   `yaml:"database"`
+	HTTP       HTTPConfig       `yaml:"http"`
+	LDAP       LDAPConfig       `yaml:"ldap"`
+	Twilio     TwilioConfig     `yaml:"twilio"`
+	SMTP       SMTPConfig       `yaml:"smtp"`
+	SMTPServer SMTPServerConfig `yaml:"smtp_server"`
+	Notify     NotifyConfig     `yaml:"notify"`
+	Logging    LoggingConfig    `yaml:"logging"`
+	Severities []string         `yaml:"severities"`
 }
 
 type DatabaseConfig struct {
@@ -111,6 +112,21 @@ type SMTPConfig struct {
 	TLSMode string `yaml:"tls_mode"`
 }
 
+type SMTPServerConfig struct {
+	// ListenAddr is the address the SMTP server listens on, e.g. ":2525".
+	// Empty string disables the server (default).
+	ListenAddr string `yaml:"listen_addr"`
+	// Domain is the accepted relay domain, e.g. "relay.local".
+	// RCPT TO addresses must match this domain; From: header addresses with this
+	// domain encode the delivery channels (email, sms, voice).
+	Domain string `yaml:"domain"`
+	// MaxMessageBytes caps the size of inbound messages. Default: 1 MB.
+	MaxMessageBytes int64 `yaml:"max_message_bytes"`
+	// TLSCertFile and TLSKeyFile enable STARTTLS when both are set.
+	TLSCertFile string `yaml:"tls_cert_file"`
+	TLSKeyFile  string `yaml:"tls_key_file"`
+}
+
 type NotifyConfig struct {
 	WorkerCount     int           `yaml:"worker_count"`
 	RetryLimit      int           `yaml:"retry_limit"`
@@ -194,6 +210,9 @@ func defaults() *Config {
 		SMTP: SMTPConfig{
 			TLSMode: "starttls",
 		},
+		SMTPServer: SMTPServerConfig{
+			MaxMessageBytes: 1 << 20, // 1 MB
+		},
 		Notify: NotifyConfig{
 			WorkerCount:         4,
 			RetryLimit:          3,
@@ -229,6 +248,9 @@ func validate(cfg *Config) error {
 	case "none", "starttls", "tls", "":
 	default:
 		return fmt.Errorf("smtp.tls_mode must be one of: none, starttls, tls (got %q)", cfg.SMTP.TLSMode)
+	}
+	if cfg.SMTPServer.ListenAddr != "" && cfg.SMTPServer.Domain == "" {
+		return fmt.Errorf("smtp_server.domain is required when smtp_server.listen_addr is set")
 	}
 	knownRoles := map[string]bool{"admin": true, "publisher": true, "reader": true}
 	for name := range cfg.LDAP.Roles {

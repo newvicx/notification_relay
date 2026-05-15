@@ -19,6 +19,7 @@ import (
 	"notification_relay/db"
 	ldapsync "notification_relay/ldap"
 	"notification_relay/notify"
+	"notification_relay/smtpapi"
 )
 
 func main() {
@@ -165,6 +166,19 @@ func main() {
 		}
 	}()
 
+	// SMTP ingestion server (disabled when listen_addr is empty)
+	var smtpSrv *smtpapi.SMTPServer
+	if cfg.SMTPServer.ListenAddr != "" {
+		smtpSrv = smtpapi.NewSMTPServer(cfg.SMTPServer, writerQ, jobQueue, logger, ldapAuth, cfg.LDAP.Roles)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := smtpSrv.Start(); err != nil {
+				logger.Error("smtp server error", "error", err)
+			}
+		}()
+	}
+
 	// Wait for shutdown signal
 	<-ctx.Done()
 	logger.Info("shutdown signal received")
@@ -174,6 +188,11 @@ func main() {
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("http server shutdown error", "error", err)
+	}
+	if smtpSrv != nil {
+		if err := smtpSrv.Shutdown(shutdownCtx); err != nil {
+			logger.Error("smtp server shutdown error", "error", err)
+		}
 	}
 
 	wg.Wait()
