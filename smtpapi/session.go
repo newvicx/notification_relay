@@ -52,6 +52,7 @@ func (sess *session) Auth(mech string) (sasl.Server, error) {
 		result, err := sess.s.auth.AuthenticateUser(ctx, username, password)
 		if err != nil {
 			if err == ldap.ErrInvalidCredentials {
+				sess.writeAuditLogAs(ctx, username, "smtp_login_failed", "", "", "")
 				return &gosmtp.SMTPError{
 					Code:         535,
 					EnhancedCode: gosmtp.EnhancedCode{5, 7, 8},
@@ -59,6 +60,7 @@ func (sess *session) Auth(mech string) (sasl.Server, error) {
 				}
 			}
 			sess.s.logger.Error("smtp auth: ldap error", "username", username, "error", err)
+			sess.writeAuditLogAs(ctx, username, "smtp_login_failed", "", "", "")
 			return &gosmtp.SMTPError{
 				Code:         451,
 				EnhancedCode: gosmtp.EnhancedCode{4, 7, 0},
@@ -68,6 +70,7 @@ func (sess *session) Auth(mech string) (sasl.Server, error) {
 
 		roles := resolveRoles(result.Groups, sess.s.roleConfig)
 		if !hasPermission(roles, permPublish) {
+			sess.writeAuditLogAs(ctx, username, "smtp_login_failed", "", "", "")
 			return &gosmtp.SMTPError{
 				Code:         550,
 				EnhancedCode: gosmtp.EnhancedCode{5, 7, 1},
@@ -181,21 +184,6 @@ func (sess *session) Data(r io.Reader) error {
 			}
 		}
 	}
-	hasEmail := false
-	for _, ch := range channels {
-		if ch == "email" {
-			hasEmail = true
-			break
-		}
-	}
-	if hasEmail && sess.s.cfg.DefaultEmailTemplate == "" {
-		return &gosmtp.SMTPError{
-			Code:         550,
-			EnhancedCode: gosmtp.EnhancedCode{5, 6, 0},
-			Message:      "smtp_server.default_email_template must be configured to use the email channel",
-		}
-	}
-
 	// Encode groups and channels as JSON for storage.
 	groupsJSON, err := json.Marshal(sess.groups)
 	if err != nil {
@@ -233,7 +221,7 @@ func (sess *session) Data(r io.Reader) error {
 		Channels:       sql.NullString{String: string(channelsJSON), Valid: true},
 		Message:        message,
 		MemberCount:    0,
-		EmailTemplate:  nullString(sess.s.cfg.DefaultEmailTemplate),
+		EmailTemplate:  sql.NullString{},
 		EmailVars:      sql.NullString{},
 		CreatedAt:      now,
 		CreatedBy:      nullString(sess.username),
@@ -266,7 +254,8 @@ func (sess *session) Data(r io.Reader) error {
 	return nil
 }
 
-// Reset clears the per-message state (groups) but retains auth state.
+// Reset clears per-message state (groups). Auth state is intentionally
+// preserved: SMTP RSET resets the envelope, not the authenticated session.
 func (sess *session) Reset() {
 	sess.groups = nil
 }
@@ -276,12 +265,17 @@ func (sess *session) Logout() error {
 	return nil
 }
 
-// writeAuditLog records an audit entry. Errors are logged but never returned —
-// audit failures must not affect the SMTP response.
+// writeAuditLog records an audit entry using the session's authenticated username.
 func (sess *session) writeAuditLog(ctx context.Context, action, impactedTable, oldJSON, newJSON string) {
+	sess.writeAuditLogAs(ctx, sess.username, action, impactedTable, oldJSON, newJSON)
+}
+
+// writeAuditLogAs records an audit entry with an explicit username. Used for
+// pre-auth events (e.g. failed logins) where sess.username is not yet set.
+func (sess *session) writeAuditLogAs(ctx context.Context, username, action, impactedTable, oldJSON, newJSON string) {
 	err := sess.s.q.InsertAuditLog(ctx, db.InsertAuditLogParams{
 		Timestamp:     time.Now().UTC().Format(time.RFC3339),
-		Username:      sess.username,
+		Username:      username,
 		IpAddress:     sql.NullString{String: sess.remoteAddr, Valid: sess.remoteAddr != ""},
 		Action:        action,
 		ImpactedTable: impactedTable,
@@ -291,7 +285,7 @@ func (sess *session) writeAuditLog(ctx context.Context, action, impactedTable, o
 	if err != nil {
 		sess.s.logger.Error("smtp: failed to write audit log",
 			"action", action,
-			"username", sess.username,
+			"username", username,
 			"error", err,
 		)
 	}

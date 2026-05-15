@@ -120,9 +120,6 @@ type SMTPServerConfig struct {
 	// RCPT TO addresses must match this domain; From: header addresses with this
 	// domain encode the delivery channels (email, sms, voice).
 	Domain string `yaml:"domain"`
-	// DefaultEmailTemplate is the email template used when email is a channel.
-	// Required when any sender intends to use the email channel.
-	DefaultEmailTemplate string `yaml:"default_email_template"`
 	// MaxMessageBytes caps the size of inbound messages. Default: 1 MB.
 	MaxMessageBytes int64 `yaml:"max_message_bytes"`
 	// TLSCertFile and TLSKeyFile enable STARTTLS when both are set.
