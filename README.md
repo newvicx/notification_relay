@@ -11,6 +11,7 @@ A notification delivery relay that sends alerts through Email, SMS, and Voice to
   - [HTTP Server](#http-server)
   - [LDAP](#ldap)
   - [SMTP](#smtp)
+  - [SMTP Ingestion Server](#smtp-ingestion-server-config)
   - [Twilio](#twilio)
   - [Notifications](#notifications)
   - [Logging](#logging)
@@ -20,6 +21,8 @@ A notification delivery relay that sends alerts through Email, SMS, and Voice to
 - [Managing Sync Groups](#managing-sync-groups)
 - [Notification Flow](#notification-flow)
 - [Email Templates](#email-templates)
+- [SMS Subscriptions](#sms-subscriptions)
+- [SMTP Ingestion Server](#smtp-ingestion-server)
 - [CLI (nrcli)](#cli-nrcli)
 
 ---
@@ -32,6 +35,9 @@ Key features:
 
 - **Multi-channel delivery** — SMS, Voice (Twilio), and Email (SMTP)
 - **LDAP-backed membership** — Group membership is periodically synced from LDAP; no manual roster management
+- **Direct-destination delivery** — Target individual phone numbers or email addresses without LDAP group membership
+- **SMTP ingestion** — Third-party systems can publish notifications by sending an email to the relay; groups and channels are encoded in the envelope
+- **SMS opt-in/opt-out** — Self-service web forms and API for SMS subscription management; dispatcher enforces subscription before sending
 - **RBAC** — Role assignment driven by LDAP group membership
 - **Audit logging** — All mutating API calls are recorded
 - **Event model** — Notifications are attached to events, enabling a full timeline of alerts for an incident
@@ -107,6 +113,10 @@ twilio:
   account_sid: "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
   auth_token: "${TWILIO_TOKEN}"
   from_number: "+15005550006"
+
+smtp_server:           # optional — omit to disable SMTP ingestion
+  listen_addr: ":2525"
+  domain: "relay.local"
 ```
 
 ### Database
@@ -160,6 +170,18 @@ SMTP configuration is optional. If omitted, Email delivery will not be available
 | `password` | — | Authentication password. Supports `${ENV_VAR}` interpolation. |
 | `from_address` | — | Envelope and header `From` address |
 | `tls_mode` | `starttls` | Encryption mode: `none`, `starttls`, or `tls` |
+
+### SMTP Ingestion Server Config
+
+The SMTP ingestion server converts inbound email into notification relay jobs. It is opt-in: the server only starts when `smtp_server.listen_addr` is set. See [SMTP Ingestion Server](#smtp-ingestion-server) for how senders encode groups and channels.
+
+| Field | Default | Description |
+|---|---|---|
+| `listen_addr` | — | TCP address to listen on (e.g. `":2525"`). Empty disables the server. |
+| `domain` | — | Accepted relay domain (e.g. `"relay.local"`). Required when `listen_addr` is set. RCPT TO addresses must match this domain; From addresses with this domain encode delivery channels. |
+| `max_message_bytes` | `1048576` (1 MB) | Maximum size of an inbound message in bytes |
+| `tls_cert_file` | — | Path to a PEM TLS certificate. STARTTLS is enabled when both this and `tls_key_file` are set. |
+| `tls_key_file` | — | Path to the PEM private key matching `tls_cert_file` |
 
 ### Twilio
 
@@ -262,23 +284,32 @@ The `ldap.roles` mapping is evaluated at authentication time against the user's 
 
 ## Managing Sync Groups
 
-Sync groups define which LDAP groups have their membership mirrored into the local database. Unlike the rest of the LDAP configuration, the sync group list is not static — it is managed at runtime through the API (under `/api/v1/sync-groups`) and via the `nrcli sync-groups` command. Only users with the `admin` role can add or remove sync groups. Changes take effect on the next scheduled sync cycle.
+Sync groups define which LDAP groups have their membership mirrored into the local database. Unlike the rest of the LDAP configuration, the sync group list is not static — it is managed at runtime through the API (under `/api/v1/groups/sync`) and via the `nrcli groups sync` command. Only users with the `admin` role can add or remove sync groups. Changes take effect on the next scheduled sync cycle.
 
 ---
 
 ## Notification Flow
 
-1. A publisher calls `POST /api/v1/notifications` targeting one or more groups and channels.
-2. The service creates a notification record and returns `202 Accepted` with a `notification_id`.
-3. A dispatcher worker picks up the job, expands each group to its current members from the `group_members` table, and creates one delivery record per member per channel.
+1. A publisher calls `POST /api/v1/notifications`. A request must include at least one `groups` entry, at least one `destinations` entry, or both. The `event_id` is auto-generated as a UUID v7 if not provided; callers may supply their own for idempotency.
+2. The service creates the notification record (status `pending`) and returns `202 Accepted` with a `notification_id`. If `end_time` is provided and the event has no end time set yet, the event is closed in the same call.
+3. A dispatcher worker picks up the job (status → `processing`) and:
+   - Expands each group to its current members from the `group_members` table, creating one delivery record per member per channel.
+   - Creates one delivery record for each direct `destinations` entry.
 4. Each delivery is dispatched to the appropriate provider:
-   - **SMS** — Twilio Messaging API using the member's `mobile_phone`
-   - **Voice** — Twilio Voice API using `mobile_phone`, falling back to `work_phone`
-   - **Email** — SMTP using the member's `email_address`, rendering the specified template
-5. Failed deliveries are retried up to `notify.retry_limit` times with exponential backoff.
-6. Twilio delivery statuses are updated asynchronously by the background poller (`notify.poll_interval`).
+   - **SMS** — Twilio Messaging API using the member's `mobile_phone` or the destination phone number. The member/number must have an active SMS subscription; unsubscribed targets produce a `not_subscribed` delivery record and are skipped.
+   - **Voice** — Twilio Voice API using `mobile_phone`, falling back to `work_phone` (group members) or the destination number directly.
+   - **Email** — SMTP using the member's `email_address` or the destination address, rendering the specified template.
+5. The notification is marked `completed` when all deliveries have been attempted, or `failed` if the job cannot be processed (e.g. no members resolve). `error_message` is populated on failure.
+6. Failed deliveries are retried up to `notify.retry_limit` times with exponential backoff (`retry_delay × 2^(attempt-1)`).
+7. Twilio delivery statuses are updated asynchronously by the background poller (`notify.poll_interval`).
 
 Members missing the required contact field for a channel (e.g. no email address) are skipped for that channel.
+
+**Time input formats:** `start_time` and `end_time` accept RFC3339, ISO-8601 (with or without the `T` separator), date-only (`2026-01-15`), `MM/DD/YYYY HH:MM AM/PM`, or Unix epoch seconds. Unrecognized formats return `400 Bad Request`. Values are normalized to RFC3339 before storage.
+
+**Filtering events:** `GET /api/v1/events` accepts optional `start_from` and `start_to` query parameters (RFC3339) to filter by `start_time`.
+
+**Updating events:** `PATCH /api/v1/events/{event_id}` supports partial updates to event fields (name, description, severity, URL, end time).
 
 ---
 
@@ -295,9 +326,9 @@ Authorization: Basic <admin-credentials>
 
 {
   "template_name": "incident-alert",
-  "subject": "Incident: {{.incident_name}}",
-  "body": "<h1>{{.incident_name}}</h1><p>{{.description}}</p>",
-  "required_vars": ["incident_name", "description"],
+  "subject": "Incident: {{.incident.name}}",
+  "body": "<h1>{{.incident.name}}</h1><p>{{.description}}</p>{{range .hosts}}<li>{{.}}</li>{{end}}",
+  "required_vars": ["incident", "description"],
   "description": "Standard incident notification template"
 }
 ```
@@ -310,13 +341,89 @@ Authorization: Basic <admin-credentials>
   "channels": ["email"],
   "email_template": "incident-alert",
   "email_vars": {
-    "incident_name": "Database Unreachable",
-    "description": "Primary database is not responding."
+    "incident": { "name": "Database Unreachable", "id": "INC-042" },
+    "description": "Primary database is not responding.",
+    "hosts": ["db-01", "db-02"]
   }
 }
 ```
 
-If a notification specifies `email` as a channel, `email_template` is required. All `required_vars` defined on the template must be present in `email_vars`.
+`email_vars` values are not restricted to strings — nested objects, arrays, and numbers are all supported. Template expressions like `{{.incident.name}}`, `{{range .hosts}}`, and `{{if .debug}}` work as expected.
+
+If a notification specifies `email` as a channel (either via `channels` for a group or via a `destinations` entry), `email_template` is required. All `required_vars` defined on the template must be present in `email_vars`. Required var names support dotted paths (e.g. `"incident.name"`) to match nested object access in the template.
+
+---
+
+## SMS Subscriptions
+
+To comply with US regulations for toll-free numbers, all SMS delivery is gated behind an explicit opt-in. Users must subscribe before the dispatcher will send them SMS messages. Unsubscribed targets produce a delivery record with `status: not_subscribed` so operators can see why a message was withheld.
+
+### Self-service opt-in
+
+Users can subscribe or unsubscribe via browser-friendly web forms:
+
+| Path | Description |
+|---|---|
+| `GET /subscribe` | Renders the subscription form |
+| `POST /subscribe` | Authenticates via LDAP and registers the user's LDAP `mobile` number |
+| `GET /unsubscribe` | Renders the unsubscription form |
+| `POST /unsubscribe` | Removes the user's subscription |
+
+A welcome SMS is sent to confirm successful registration.
+
+### Admin API
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/sms-subscriptions` | List all subscriptions |
+| `POST` | `/api/v1/sms-subscriptions` | Subscribe a user by `username` |
+| `DELETE` | `/api/v1/sms-subscriptions/{username}` | Remove any user's subscription |
+| `POST` | `/api/v1/sms-subscriptions/me` | Subscribe yourself (authenticated) |
+| `DELETE` | `/api/v1/sms-subscriptions/me` | Remove your own subscription |
+
+The `POST` and `DELETE` paths (except `/me`) require the `admin` role.
+
+---
+
+## SMTP Ingestion Server
+
+The SMTP ingestion server lets third-party systems publish notifications by sending an email — no HTTP client required. The server is opt-in (started only when `smtp_server.listen_addr` is set in config).
+
+### Message encoding
+
+The sender encodes notification targets entirely in standard email headers:
+
+| Part | Meaning |
+|---|---|
+| `RCPT TO: <group@domain>` | LDAP group(s) to fan out to — one `RCPT TO` per group |
+| `From: <channel@domain>` | Delivery channel(s) — one address per channel (`sms@domain`, `voice@domain`, `email@domain`) |
+| `Subject:` | Event name |
+| Body (plain text) | Notification message |
+
+`domain` must match `smtp_server.domain` in config. Severity cannot be communicated this way; the default email template (if any) is configured server-side.
+
+### Authentication
+
+Senders authenticate via SASL PLAIN. Credentials are verified against LDAP; only users with the `publisher` or `admin` role may send. Each accepted message writes three audit log entries: `smtp_login`, `create_event`, and `create_notification`.
+
+### STARTTLS
+
+STARTTLS is advertised and available when `smtp_server.tls_cert_file` and `smtp_server.tls_key_file` are both set. Without TLS files, the server accepts plaintext connections (suitable for trusted internal networks only).
+
+### Example (curl as SMTP client)
+
+```bash
+curl smtp://relay.example.com:2525 \
+  --mail-from "sms@relay.local" \
+  --mail-rcpt "grp-oncall@relay.local" \
+  --upload-file - <<'EOF'
+From: sms@relay.local
+To: grp-oncall@relay.local
+Subject: Disk alert
+
+Disk usage above 90% on web-01.
+EOF
+```
 
 ---
 
@@ -349,17 +456,17 @@ nrcli [--url URL] [--user USER] [--password PASS] [--json] <command> <subcommand
 
 | Command | Description |
 |---|---|
-| `events` | Create, list, and resolve events; view attached notifications |
+| `events` | Create, list, update, and resolve events; view attached notifications |
 | `notifications` | Publish and inspect notifications |
 | `deliveries` | Inspect individual delivery attempts |
-| `groups` | View synced LDAP group membership |
-| `sync-groups` | Manage LDAP sync group configuration (admin only) |
+| `groups` | View synced LDAP group membership; manage sync group configuration (`groups sync`) |
 | `templates` | Create, update, and delete email templates |
+| `subscriptions` | Manage SMS subscriptions (self-service and admin) |
 | `audit` | View the audit log (admin only) |
 
 Run `nrcli <command> --help` or `nrcli <command> <subcommand> --help` for full flag details.
 
-**Example — publish a notification:**
+**Example — publish a notification to a group:**
 
 ```bash
 nrcli --url http://relay.example.com:8080 \
@@ -370,12 +477,28 @@ nrcli --url http://relay.example.com:8080 \
   --channel sms --channel email \
   --message "Critical: database unreachable" \
   --email-template incident-alert \
-  --email-var "incident_name=Database Unreachable"
+  --end-time 2026-05-15T14:00:00Z
+```
+
+**Example — publish a notification to direct destinations:**
+
+```bash
+nrcli notifications publish \
+  --destination sms:+12125551234 \
+  --destination email:ops@example.com \
+  --message "Disk usage above 90% on web-01" \
+  --email-template alert-standard
 ```
 
 **Example — add a sync group and verify membership:**
 
 ```bash
-nrcli sync-groups add grp-oncall
+nrcli groups sync add grp-oncall
 nrcli groups members grp-oncall
+```
+
+**Example — subscribe yourself to SMS alerts:**
+
+```bash
+nrcli subscriptions subscribe-me
 ```
