@@ -37,13 +37,17 @@ var subscribeFormTmpl = template.Must(template.New("subscribe").Parse(`<!DOCTYPE
   .error { background: #fde8e8; color: #b00; border: 1px solid #f5c6c6; }
   .info  { background: #e8f4fd; color: #155; border: 1px solid #b3d7f0; }
   .ok    { background: #e8fde8; color: #050; border: 1px solid #b3f0b3; }
+  .container {
+    display: flex;
+    justify-content: center; /* Centers horizontally */
+    align-items: center;     /* Centers vertically */
+    height: 50px;           /* Required for vertical centering */
+  }
 </style>
 </head>
 <body>
 <h1>Register for SMS Notifications</h1>
-<p class="desc">Enter your company credentials to opt in to SMS alerts sent to your company mobile phone.</p>
-{{if .Flash}}<div class="msg {{.FlashClass}}">{{.Flash}}</div>{{end}}
-{{if .Done}}{{else}}
+<p class="desc">Enter your company credentials to opt in to SMS alerts for process alarms sent to your company mobile phone.</p>
 <form method="POST" action="/subscribe">
   <label for="username">Username</label>
   <input type="text" id="username" name="username" autocomplete="username" required>
@@ -51,8 +55,11 @@ var subscribeFormTmpl = template.Must(template.New("subscribe").Parse(`<!DOCTYPE
   <input type="password" id="password" name="password" autocomplete="current-password" required>
   <button type="submit">Register</button>
 </form>
-{{end}}
 <div class="footer">
+  <p class="desc">By entering your credentials you consent to allow AbbVie to send you alarms and alerts to your company issued mobile phone number.</p>
+  <div class="container">
+	<img src="assets/logo.png" alt="AbbVie Logo" width="120" height="90">
+  </div>
   Message frequency varies &bull; Msg &amp; data rates may apply &bull; Reply STOP to opt out &bull;
   <a href="/unsubscribe">Unsubscribe</a>
 </div>
