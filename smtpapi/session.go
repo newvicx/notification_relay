@@ -31,6 +31,17 @@ type session struct {
 	username   string // set after SASL PLAIN auth succeeds
 	authed     bool
 	groups     []string // accumulated via RCPT TO
+	channels   []string // accumulated (deduped) from RCPT TO local parts
+}
+
+// addChannel appends ch to the session's channel set if not already present.
+func (sess *session) addChannel(ch string) {
+	for _, existing := range sess.channels {
+		if existing == ch {
+			return
+		}
+	}
+	sess.channels = append(sess.channels, ch)
 }
 
 // AuthMechanisms advertises support for PLAIN only.
@@ -87,7 +98,7 @@ func (sess *session) Auth(mech string) (sasl.Server, error) {
 }
 
 // Mail accepts the MAIL FROM command. The envelope sender is ignored —
-// channels are read from the From: message header during Data.
+// targets and channels are read from the RCPT TO recipients.
 func (sess *session) Mail(from string, opts *gosmtp.MailOptions) error {
 	if !sess.authed {
 		return gosmtp.ErrAuthRequired
@@ -95,12 +106,13 @@ func (sess *session) Mail(from string, opts *gosmtp.MailOptions) error {
 	return nil
 }
 
-// Rcpt validates the recipient domain and accumulates the group name.
+// Rcpt validates the recipient domain and accumulates the group name and any
+// delivery channels encoded in the address local part ("group:sms,voice").
 func (sess *session) Rcpt(to string, opts *gosmtp.RcptOptions) error {
 	if !sess.authed {
 		return gosmtp.ErrAuthRequired
 	}
-	group, err := extractGroupFromAddr(to, sess.s.cfg.Domain)
+	rcpt, err := parseRecipient(to, sess.s.cfg.Domain)
 	if err != nil {
 		return &gosmtp.SMTPError{
 			Code:         550,
@@ -108,7 +120,21 @@ func (sess *session) Rcpt(to string, opts *gosmtp.RcptOptions) error {
 			Message:      err.Error(),
 		}
 	}
-	sess.groups = append(sess.groups, group)
+	// Reject unknown channels at RCPT time so the sender sees which recipient
+	// is at fault.
+	for _, ch := range rcpt.channels {
+		if !validChannels[ch] {
+			return &gosmtp.SMTPError{
+				Code:         550,
+				EnhancedCode: gosmtp.EnhancedCode{5, 1, 1},
+				Message:      fmt.Sprintf("Unknown channel %q in recipient %q; valid values: sms, voice, email", ch, to),
+			}
+		}
+	}
+	sess.groups = append(sess.groups, rcpt.group)
+	for _, ch := range rcpt.channels {
+		sess.addChannel(ch)
+	}
 	return nil
 }
 
@@ -128,16 +154,20 @@ func (sess *session) Data(r io.Reader) error {
 		}
 	}
 
-	// Extract channels from the From: message header.
-	fromHeader := msg.Header.Get("From")
-	var channels []string
-	if fromHeader != "" {
-		channels, err = extractChannelsFromFromHeader(fromHeader, sess.s.cfg.Domain)
-		if err != nil {
-			return &gosmtp.SMTPError{
-				Code:         550,
-				EnhancedCode: gosmtp.EnhancedCode{5, 1, 7},
-				Message:      "Invalid From header: " + err.Error(),
+	// Channels are encoded in the RCPT TO recipients (collected in Rcpt). For
+	// backward compatibility, fall back to the From: message header when no
+	// recipient embedded any channels.
+	channels := sess.channels
+	if len(channels) == 0 {
+		fromHeader := msg.Header.Get("From")
+		if fromHeader != "" {
+			channels, err = extractChannelsFromFromHeader(fromHeader, sess.s.cfg.Domain)
+			if err != nil {
+				return &gosmtp.SMTPError{
+					Code:         550,
+					EnhancedCode: gosmtp.EnhancedCode{5, 1, 7},
+					Message:      "Invalid From header: " + err.Error(),
+				}
 			}
 		}
 	}
@@ -172,7 +202,7 @@ func (sess *session) Data(r io.Reader) error {
 		return &gosmtp.SMTPError{
 			Code:         550,
 			EnhancedCode: gosmtp.EnhancedCode{5, 1, 7},
-			Message:      fmt.Sprintf("From: header must contain at least one address @%s to specify a channel", sess.s.cfg.Domain),
+			Message:      "At least one channel is required; encode it in the recipient address, e.g. group:sms,voice@" + sess.s.cfg.Domain,
 		}
 	}
 	for _, ch := range channels {
@@ -254,10 +284,12 @@ func (sess *session) Data(r io.Reader) error {
 	return nil
 }
 
-// Reset clears per-message state (groups). Auth state is intentionally
-// preserved: SMTP RSET resets the envelope, not the authenticated session.
+// Reset clears per-message state (groups and channels). Auth state is
+// intentionally preserved: SMTP RSET resets the envelope, not the
+// authenticated session.
 func (sess *session) Reset() {
 	sess.groups = nil
+	sess.channels = nil
 }
 
 // Logout frees session resources.

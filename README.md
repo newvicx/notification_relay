@@ -178,7 +178,7 @@ The SMTP ingestion server converts inbound email into notification relay jobs. I
 | Field | Default | Description |
 |---|---|---|
 | `listen_addr` | — | TCP address to listen on (e.g. `":2525"`). Empty disables the server. |
-| `domain` | — | Accepted relay domain (e.g. `"relay.local"`). Required when `listen_addr` is set. RCPT TO addresses must match this domain; From addresses with this domain encode delivery channels. |
+| `domain` | — | Accepted relay domain (e.g. `"relay.local"`). Required when `listen_addr` is set. RCPT TO addresses must match this domain; their local part encodes the group and delivery channels (`group:sms,voice`). |
 | `max_message_bytes` | `1048576` (1 MB) | Maximum size of an inbound message in bytes |
 | `tls_cert_file` | — | Path to a PEM TLS certificate. STARTTLS is enabled when both this and `tls_key_file` are set. |
 | `tls_key_file` | — | Path to the PEM private key matching `tls_cert_file` |
@@ -391,16 +391,23 @@ The SMTP ingestion server lets third-party systems publish notifications by send
 
 ### Message encoding
 
-The sender encodes notification targets entirely in standard email headers:
+The sender encodes notification targets in the SMTP envelope and message:
 
 | Part | Meaning |
 |---|---|
-| `RCPT TO: <group@domain>` | LDAP group(s) to fan out to — one `RCPT TO` per group |
-| `From: <channel@domain>` | Delivery channel(s) — one address per channel (`sms@domain`, `voice@domain`, `email@domain`) |
+| `RCPT TO: <group:channels@domain>` | LDAP group plus its delivery channels — one `RCPT TO` per group |
 | `Subject:` | Event name |
 | Body (plain text) | Notification message |
 
-`domain` must match `smtp_server.domain` in config. Severity cannot be communicated this way; the default email template (if any) is configured server-side.
+The recipient local part is `group:channel1,channel2` — the LDAP group name, a colon, then a comma-separated list of channels (`sms`, `voice`, `email`). For example, `RCPT TO: <grp-oncall:sms,voice@relay.local>` targets `grp-oncall` over SMS and Voice. The channels of every recipient are unioned for the notification, so different groups share the same channel set.
+
+This encoding needs only the SMTP envelope (`MAIL FROM` / `RCPT TO`) — no message headers — so it works with clients that cannot set a `From:` header.
+
+Notes:
+- `domain` must match `smtp_server.domain` in config.
+- `,` and `:` are not strictly valid in an unquoted SMTP local part; if your client rejects them, use `+` as the channel separator instead (`grp-oncall:sms+voice@relay.local`), which is valid unquoted.
+- **Legacy fallback:** if no recipient embeds channels, the server falls back to reading channels from the `From:` header (one `channel@domain` address per channel), preserving the previous behavior.
+- Severity cannot be communicated this way; the default email template (if any) is configured server-side.
 
 ### Authentication
 
@@ -414,11 +421,9 @@ STARTTLS is advertised and available when `smtp_server.tls_cert_file` and `smtp_
 
 ```bash
 curl smtp://relay.example.com:2525 \
-  --mail-from "sms@relay.local" \
-  --mail-rcpt "grp-oncall@relay.local" \
+  --mail-from "alerts@relay.local" \
+  --mail-rcpt "grp-oncall:sms,voice@relay.local" \
   --upload-file - <<'EOF'
-From: sms@relay.local
-To: grp-oncall@relay.local
 Subject: Disk alert
 
 Disk usage above 90% on web-01.
