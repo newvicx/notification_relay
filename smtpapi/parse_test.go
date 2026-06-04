@@ -1,9 +1,61 @@
 package smtpapi
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 )
+
+func TestResolveTargets(t *testing.T) {
+	t.Run("each recipient keeps its own channels", func(t *testing.T) {
+		// The reviewer's scenario: email to one group, sms+voice to another.
+		in := []parsedRecipient{
+			{group: "ops-team", channels: []string{"email"}},
+			{group: "oncall", channels: []string{"sms", "voice"}},
+		}
+		got, err := resolveTargets(in, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []parsedRecipient{
+			{group: "ops-team", channels: []string{"email"}},
+			{group: "oncall", channels: []string{"sms", "voice"}},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("recipients without channels use the fallback", func(t *testing.T) {
+		in := []parsedRecipient{
+			{group: "ops-team", channels: []string{"email"}}, // keeps its own
+			{group: "legacy"},                                 // uses fallback
+		}
+		got, err := resolveTargets(in, []string{"sms"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []parsedRecipient{
+			{group: "ops-team", channels: []string{"email"}},
+			{group: "legacy", channels: []string{"sms"}},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("no channels and no fallback is an error", func(t *testing.T) {
+		in := []parsedRecipient{{group: "lonely"}}
+		_, err := resolveTargets(in, nil)
+		var mc missingChannelError
+		if !errors.As(err, &mc) {
+			t.Fatalf("expected missingChannelError, got %v", err)
+		}
+		if mc.group != "lonely" {
+			t.Errorf("group = %q, want %q", mc.group, "lonely")
+		}
+	})
+}
 
 func TestParseRecipient(t *testing.T) {
 	const domain = "notification_relay.local"

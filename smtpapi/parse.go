@@ -43,9 +43,11 @@ func parseRecipient(addr, expectedDomain string) (parsedRecipient, error) {
 	fields := strings.Split(local, "+")
 	group := strings.TrimSpace(fields[0])
 	var channels []string
+	seen := make(map[string]bool)
 	for _, ch := range fields[1:] {
 		ch = strings.ToLower(strings.TrimSpace(ch))
-		if ch != "" {
+		if ch != "" && !seen[ch] {
+			seen[ch] = true
 			channels = append(channels, ch)
 		}
 	}
@@ -53,6 +55,34 @@ func parseRecipient(addr, expectedDomain string) (parsedRecipient, error) {
 		return parsedRecipient{}, fmt.Errorf("invalid address %q: empty group", addr)
 	}
 	return parsedRecipient{group: group, channels: channels}, nil
+}
+
+// missingChannelError reports a recipient group that ended up with no delivery
+// channels (none embedded and no From: fallback available).
+type missingChannelError struct{ group string }
+
+func (e missingChannelError) Error() string {
+	return fmt.Sprintf("no channel specified for group %q", e.group)
+}
+
+// resolveTargets pairs each recipient with its effective delivery channels: the
+// channels embedded in the recipient address, or the fallback (From: header)
+// channels when the recipient embedded none. It returns a missingChannelError
+// for the first recipient that is left with no channels. The returned slice is
+// independent of the inputs.
+func resolveTargets(recipients []parsedRecipient, fallback []string) ([]parsedRecipient, error) {
+	resolved := make([]parsedRecipient, 0, len(recipients))
+	for _, rcpt := range recipients {
+		channels := rcpt.channels
+		if len(channels) == 0 {
+			channels = fallback
+		}
+		if len(channels) == 0 {
+			return nil, missingChannelError{group: rcpt.group}
+		}
+		resolved = append(resolved, parsedRecipient{group: rcpt.group, channels: channels})
+	}
+	return resolved, nil
 }
 
 // extractChannelsFromFromHeader parses the From: message header and returns

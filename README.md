@@ -399,7 +399,12 @@ The sender encodes notification targets in the SMTP envelope and message:
 | `Subject:` | Event name |
 | Body (plain text) | Notification message |
 
-The recipient local part is `group+channel1+channel2` — the LDAP group name followed by one or more `+`-separated channels (`sms`, `voice`, `email`). For example, `RCPT TO: <group-notify+sms+email+voice@relay.local>` targets `group-notify` over SMS, Email, and Voice. The channels of every recipient are unioned for the notification, so different groups share the same channel set.
+The recipient local part is `group+channel1+channel2` — the LDAP group name followed by one or more `+`-separated channels (`sms`, `voice`, `email`). For example, `RCPT TO: <group-notify+sms+email+voice@relay.local>` targets `group-notify` over SMS, Email, and Voice. Each recipient is an independent group+channel combination — every `RCPT TO` becomes its own notification (all sharing one event), so a single message can send, say, email to one group and SMS + Voice to another:
+
+```
+RCPT TO: <ops-team+email@relay.local>
+RCPT TO: <oncall+sms+voice@relay.local>
+```
 
 This encoding needs only the SMTP envelope (`MAIL FROM` / `RCPT TO`) — no message headers — so it works with clients that cannot set a `From:` header. `+` is used because it is valid in an unquoted SMTP local part, so the address passes through strict clients unchanged.
 
