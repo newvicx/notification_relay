@@ -118,7 +118,7 @@ type SMTPServerConfig struct {
 	ListenAddr string `yaml:"listen_addr"`
 	// Domain is the accepted relay domain, e.g. "relay.local".
 	// RCPT TO addresses must match this domain; their local part encodes the
-	// group and delivery channels as "group:sms,voice" (email, sms, voice).
+	// group and delivery channels as "group+sms+voice" (email, sms, voice).
 	Domain string `yaml:"domain"`
 	// MaxMessageBytes caps the size of inbound messages. Default: 1 MB.
 	MaxMessageBytes int64 `yaml:"max_message_bytes"`

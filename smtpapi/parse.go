@@ -18,12 +18,12 @@ type parsedRecipient struct {
 
 // parseRecipient parses a RCPT TO address and returns the LDAP group name and
 // any delivery channels encoded in it. The local part has the form
-// "group:channel1,channel2" — the group name, optionally followed by a colon
-// and a comma-separated list of channels (sms, voice, email). The bare form
-// "group" (no colon) is also accepted, leaving channels empty.
+// "group+channel1+channel2" — the group name, optionally followed by one or
+// more '+'-separated channels (sms, voice, email). The bare form "group" (no
+// '+') is accepted too, leaving channels empty.
 //
-// The address is parsed manually rather than via net/mail because the ':' and
-// ',' separators are not valid in an unquoted RFC 5322 addr-spec.
+// '+' is used because it is a valid character in an unquoted RFC 5322 local
+// part, so the address survives strict SMTP clients and intermediaries.
 func parseRecipient(addr, expectedDomain string) (parsedRecipient, error) {
 	// go-smtp hands us the bare path, but trim brackets/space defensively.
 	addr = strings.TrimSpace(addr)
@@ -39,20 +39,14 @@ func parseRecipient(addr, expectedDomain string) (parsedRecipient, error) {
 		return parsedRecipient{}, fmt.Errorf("recipient domain %q does not match relay domain %q", domain, expectedDomain)
 	}
 
-	group := local
+	// The first '+'-separated field is the group; the rest are channels.
+	fields := strings.Split(local, "+")
+	group := strings.TrimSpace(fields[0])
 	var channels []string
-	if colon := strings.IndexByte(local, ':'); colon >= 0 {
-		group = local[:colon]
-		// Channels are separated by ',' or '+'. '+' is valid in an unquoted
-		// local part, so "group:sms+voice" works even with strict clients.
-		fields := strings.FieldsFunc(local[colon+1:], func(r rune) bool {
-			return r == ',' || r == '+'
-		})
-		for _, ch := range fields {
-			ch = strings.ToLower(strings.TrimSpace(ch))
-			if ch != "" {
-				channels = append(channels, ch)
-			}
+	for _, ch := range fields[1:] {
+		ch = strings.ToLower(strings.TrimSpace(ch))
+		if ch != "" {
+			channels = append(channels, ch)
 		}
 	}
 	if group == "" {

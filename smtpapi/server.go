@@ -15,7 +15,7 @@ import (
 
 // SMTPServer is an SMTP ingestion server that converts inbound email into
 // notification relay jobs. Each RCPT TO recipient encodes an LDAP group target
-// and its delivery channels in the address local part ("group:sms,voice");
+// and its delivery channels in the address local part ("group+sms+voice");
 // the Subject becomes the event name; the body is the message. For backward
 // compatibility, channels may instead be supplied via the From: header.
 type SMTPServer struct {

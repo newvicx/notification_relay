@@ -16,20 +16,14 @@ func TestParseRecipient(t *testing.T) {
 		wantErr      bool
 	}{
 		{
-			name:         "group with comma-separated channels",
-			addr:         "test-notify-group:sms,voice@notification_relay.local",
-			wantGroup:    "test-notify-group",
-			wantChannels: []string{"sms", "voice"},
-		},
-		{
-			name:         "group with plus-separated channels",
-			addr:         "test-notify-group:sms+voice@notification_relay.local",
-			wantGroup:    "test-notify-group",
-			wantChannels: []string{"sms", "voice"},
+			name:         "group with multiple channels",
+			addr:         "group-notify+sms+email+voice@notification_relay.local",
+			wantGroup:    "group-notify",
+			wantChannels: []string{"sms", "email", "voice"},
 		},
 		{
 			name:         "single channel",
-			addr:         "grp-oncall:email@notification_relay.local",
+			addr:         "grp-oncall+email@notification_relay.local",
 			wantGroup:    "grp-oncall",
 			wantChannels: []string{"email"},
 		},
@@ -41,47 +35,47 @@ func TestParseRecipient(t *testing.T) {
 		},
 		{
 			name:         "angle brackets and whitespace are trimmed",
-			addr:         "  <grp-oncall:sms@notification_relay.local>  ",
+			addr:         "  <grp-oncall+sms@notification_relay.local>  ",
 			wantGroup:    "grp-oncall",
 			wantChannels: []string{"sms"},
 		},
 		{
 			name:         "channels are lowercased and trimmed",
-			addr:         "grp:SMS, Voice @notification_relay.local",
+			addr:         "grp+SMS+ Voice @notification_relay.local",
 			wantGroup:    "grp",
 			wantChannels: []string{"sms", "voice"},
 		},
 		{
 			name:         "domain match is case-insensitive",
-			addr:         "grp:sms@Notification_Relay.Local",
+			addr:         "grp+sms@Notification_Relay.Local",
 			wantGroup:    "grp",
 			wantChannels: []string{"sms"},
 		},
 		{
 			name:         "empty channel entries are skipped",
-			addr:         "grp:sms,,voice,@notification_relay.local",
+			addr:         "grp+sms++voice+@notification_relay.local",
 			wantGroup:    "grp",
 			wantChannels: []string{"sms", "voice"},
 		},
 		{
-			name:         "colon with no channels yields empty set",
-			addr:         "grp:@notification_relay.local",
+			name:         "trailing plus with no channels yields empty set",
+			addr:         "grp+@notification_relay.local",
 			wantGroup:    "grp",
 			wantChannels: nil,
 		},
 		{
 			name:    "wrong domain",
-			addr:    "grp:sms@other.local",
+			addr:    "grp+sms@other.local",
 			wantErr: true,
 		},
 		{
 			name:    "missing domain",
-			addr:    "grp:sms",
+			addr:    "grp+sms",
 			wantErr: true,
 		},
 		{
 			name:    "empty group",
-			addr:    ":sms@notification_relay.local",
+			addr:    "+sms@notification_relay.local",
 			wantErr: true,
 		},
 	}

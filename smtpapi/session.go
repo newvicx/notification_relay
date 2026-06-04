@@ -107,7 +107,7 @@ func (sess *session) Mail(from string, opts *gosmtp.MailOptions) error {
 }
 
 // Rcpt validates the recipient domain and accumulates the group name and any
-// delivery channels encoded in the address local part ("group:sms,voice").
+// delivery channels encoded in the address local part ("group+sms+voice").
 func (sess *session) Rcpt(to string, opts *gosmtp.RcptOptions) error {
 	if !sess.authed {
 		return gosmtp.ErrAuthRequired
@@ -202,7 +202,7 @@ func (sess *session) Data(r io.Reader) error {
 		return &gosmtp.SMTPError{
 			Code:         550,
 			EnhancedCode: gosmtp.EnhancedCode{5, 1, 7},
-			Message:      "At least one channel is required; encode it in the recipient address, e.g. group:sms,voice@" + sess.s.cfg.Domain,
+			Message:      "At least one channel is required; encode it in the recipient address, e.g. group+sms+voice@" + sess.s.cfg.Domain,
 		}
 	}
 	for _, ch := range channels {
