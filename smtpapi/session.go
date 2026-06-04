@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/mail"
@@ -30,7 +31,10 @@ type session struct {
 	remoteAddr string // from smtp.Conn at NewSession — used in every audit log entry
 	username   string // set after SASL PLAIN auth succeeds
 	authed     bool
-	groups     []string // accumulated via RCPT TO
+	// recipients accumulates one entry per RCPT TO. Each carries a group and
+	// the channels encoded for that group, so different groups in the same
+	// message can target different channels.
+	recipients []parsedRecipient
 }
 
 // AuthMechanisms advertises support for PLAIN only.
@@ -87,7 +91,7 @@ func (sess *session) Auth(mech string) (sasl.Server, error) {
 }
 
 // Mail accepts the MAIL FROM command. The envelope sender is ignored —
-// channels are read from the From: message header during Data.
+// targets and channels are read from the RCPT TO recipients.
 func (sess *session) Mail(from string, opts *gosmtp.MailOptions) error {
 	if !sess.authed {
 		return gosmtp.ErrAuthRequired
@@ -95,12 +99,13 @@ func (sess *session) Mail(from string, opts *gosmtp.MailOptions) error {
 	return nil
 }
 
-// Rcpt validates the recipient domain and accumulates the group name.
+// Rcpt validates the recipient domain and accumulates the group name and any
+// delivery channels encoded in the address local part ("group+sms+voice").
 func (sess *session) Rcpt(to string, opts *gosmtp.RcptOptions) error {
 	if !sess.authed {
 		return gosmtp.ErrAuthRequired
 	}
-	group, err := extractGroupFromAddr(to, sess.s.cfg.Domain)
+	rcpt, err := parseRecipient(to, sess.s.cfg.Domain)
 	if err != nil {
 		return &gosmtp.SMTPError{
 			Code:         550,
@@ -108,12 +113,24 @@ func (sess *session) Rcpt(to string, opts *gosmtp.RcptOptions) error {
 			Message:      err.Error(),
 		}
 	}
-	sess.groups = append(sess.groups, group)
+	// Reject unknown channels at RCPT time so the sender sees which recipient
+	// is at fault.
+	for _, ch := range rcpt.channels {
+		if !validChannels[ch] {
+			return &gosmtp.SMTPError{
+				Code:         550,
+				EnhancedCode: gosmtp.EnhancedCode{5, 1, 1},
+				Message:      fmt.Sprintf("Unknown channel %q in recipient %q; valid values: sms, voice, email", ch, to),
+			}
+		}
+	}
+	sess.recipients = append(sess.recipients, rcpt)
 	return nil
 }
 
-// Data processes the message, creates an event + notification record, and
-// enqueues the job.
+// Data processes the message, creates one event plus a notification per
+// recipient (so each group targets its own channels), and enqueues a job for
+// each notification.
 func (sess *session) Data(r io.Reader) error {
 	if !sess.authed {
 		return gosmtp.ErrAuthRequired
@@ -128,16 +145,26 @@ func (sess *session) Data(r io.Reader) error {
 		}
 	}
 
-	// Extract channels from the From: message header.
-	fromHeader := msg.Header.Get("From")
-	var channels []string
-	if fromHeader != "" {
-		channels, err = extractChannelsFromFromHeader(fromHeader, sess.s.cfg.Domain)
+	// Channels are normally encoded per recipient (collected in Rcpt). For
+	// backward compatibility, the From: message header supplies fallback
+	// channels applied to any recipient that did not embed its own.
+	var fallbackChannels []string
+	if fromHeader := msg.Header.Get("From"); fromHeader != "" {
+		fallbackChannels, err = extractChannelsFromFromHeader(fromHeader, sess.s.cfg.Domain)
 		if err != nil {
 			return &gosmtp.SMTPError{
 				Code:         550,
 				EnhancedCode: gosmtp.EnhancedCode{5, 1, 7},
 				Message:      "Invalid From header: " + err.Error(),
+			}
+		}
+		for _, ch := range fallbackChannels {
+			if !validChannels[ch] {
+				return &gosmtp.SMTPError{
+					Code:         550,
+					EnhancedCode: gosmtp.EnhancedCode{5, 6, 0},
+					Message:      fmt.Sprintf("Unknown channel %q in From header; valid values: sms, voice, email", ch),
+				}
 			}
 		}
 	}
@@ -154,7 +181,7 @@ func (sess *session) Data(r io.Reader) error {
 	}
 
 	// Validate.
-	if len(sess.groups) == 0 {
+	if len(sess.recipients) == 0 {
 		return &gosmtp.SMTPError{
 			Code:         550,
 			EnhancedCode: gosmtp.EnhancedCode{5, 1, 1},
@@ -168,29 +195,21 @@ func (sess *session) Data(r io.Reader) error {
 			Message:      "Message body must not be empty",
 		}
 	}
-	if len(channels) == 0 {
-		return &gosmtp.SMTPError{
-			Code:         550,
-			EnhancedCode: gosmtp.EnhancedCode{5, 1, 7},
-			Message:      fmt.Sprintf("From: header must contain at least one address @%s to specify a channel", sess.s.cfg.Domain),
-		}
-	}
-	for _, ch := range channels {
-		if !validChannels[ch] {
+
+	// Resolve each recipient's effective channels (its own, else the From:
+	// fallback) up front so no records are created if any recipient is invalid.
+	resolved, err := resolveTargets(sess.recipients, fallbackChannels)
+	if err != nil {
+		var mc missingChannelError
+		if errors.As(err, &mc) {
 			return &gosmtp.SMTPError{
 				Code:         550,
-				EnhancedCode: gosmtp.EnhancedCode{5, 6, 0},
-				Message:      fmt.Sprintf("Unknown channel %q; valid values: sms, voice, email", ch),
+				EnhancedCode: gosmtp.EnhancedCode{5, 1, 7},
+				Message: fmt.Sprintf(
+					"No channel specified for group %q; encode it in the recipient address, e.g. %s+sms+voice@%s",
+					mc.group, mc.group, sess.s.cfg.Domain),
 			}
 		}
-	}
-	// Encode groups and channels as JSON for storage.
-	groupsJSON, err := json.Marshal(sess.groups)
-	if err != nil {
-		return smtpInternalError()
-	}
-	channelsJSON, err := json.Marshal(channels)
-	if err != nil {
 		return smtpInternalError()
 	}
 
@@ -213,51 +232,65 @@ func (sess *session) Data(r io.Reader) error {
 	}
 	sess.writeAuditLog(ctx, "create_event", "events", "", marshalJSON(event))
 
-	notif, err := sess.s.q.InsertNotification(ctx, db.InsertNotificationParams{
-		NotificationID: newUUIDV7(),
-		EventID:        event.EventID,
-		Groups:         sql.NullString{String: string(groupsJSON), Valid: true},
-		Destinations:   sql.NullString{},
-		Channels:       sql.NullString{String: string(channelsJSON), Valid: true},
-		Message:        message,
-		MemberCount:    0,
-		EmailTemplate:  sql.NullString{},
-		EmailVars:      sql.NullString{},
-		CreatedAt:      now,
-		CreatedBy:      nullString(sess.username),
-		Status:         "pending",
-	})
-	if err != nil {
-		sess.s.logger.Error("smtp: insert notification failed", "error", err)
-		return smtpTransientError("Failed to persist notification")
-	}
-	sess.writeAuditLog(ctx, "create_notification", "notifications", "", marshalJSON(notif))
-
-	select {
-	case sess.s.queue <- notify.Job{NotificationID: notif.NotificationID}:
-	default:
-		sess.s.logger.Error("smtp: job queue full", "notification_id", notif.NotificationID)
-		return &gosmtp.SMTPError{
-			Code:         452,
-			EnhancedCode: gosmtp.EnhancedCode{4, 3, 1},
-			Message:      "Server busy, try again later",
+	// One notification per recipient: each targets a single group with the
+	// channels encoded for that group.
+	for _, rcpt := range resolved {
+		groupsJSON, err := json.Marshal([]string{rcpt.group})
+		if err != nil {
+			return smtpInternalError()
 		}
+		channelsJSON, err := json.Marshal(rcpt.channels)
+		if err != nil {
+			return smtpInternalError()
+		}
+
+		notif, err := sess.s.q.InsertNotification(ctx, db.InsertNotificationParams{
+			NotificationID: newUUIDV7(),
+			EventID:        event.EventID,
+			Groups:         sql.NullString{String: string(groupsJSON), Valid: true},
+			Destinations:   sql.NullString{},
+			Channels:       sql.NullString{String: string(channelsJSON), Valid: true},
+			Message:        message,
+			MemberCount:    0,
+			EmailTemplate:  sql.NullString{},
+			EmailVars:      sql.NullString{},
+			CreatedAt:      now,
+			CreatedBy:      nullString(sess.username),
+			Status:         "pending",
+		})
+		if err != nil {
+			sess.s.logger.Error("smtp: insert notification failed", "error", err)
+			return smtpTransientError("Failed to persist notification")
+		}
+		sess.writeAuditLog(ctx, "create_notification", "notifications", "", marshalJSON(notif))
+
+		select {
+		case sess.s.queue <- notify.Job{NotificationID: notif.NotificationID}:
+		default:
+			sess.s.logger.Error("smtp: job queue full", "notification_id", notif.NotificationID)
+			return &gosmtp.SMTPError{
+				Code:         452,
+				EnhancedCode: gosmtp.EnhancedCode{4, 3, 1},
+				Message:      "Server busy, try again later",
+			}
+		}
+
+		sess.s.logger.Info("smtp: notification queued",
+			"notification_id", notif.NotificationID,
+			"event_id", event.EventID,
+			"group", rcpt.group,
+			"channels", rcpt.channels,
+			"username", sess.username,
+		)
 	}
 
-	sess.s.logger.Info("smtp: notification queued",
-		"notification_id", notif.NotificationID,
-		"event_id", event.EventID,
-		"groups", sess.groups,
-		"channels", channels,
-		"username", sess.username,
-	)
 	return nil
 }
 
-// Reset clears per-message state (groups). Auth state is intentionally
+// Reset clears per-message state (recipients). Auth state is intentionally
 // preserved: SMTP RSET resets the envelope, not the authenticated session.
 func (sess *session) Reset() {
-	sess.groups = nil
+	sess.recipients = nil
 }
 
 // Logout frees session resources.

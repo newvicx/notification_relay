@@ -14,10 +14,12 @@ import (
 )
 
 // SMTPServer is an SMTP ingestion server that converts inbound email into
-// notification relay jobs. The To: recipients encode LDAP group targets;
-// the From: header (addresses whose domain matches cfg.Domain) encodes
-// delivery channels; the Subject becomes the event name; the body is the
-// message.
+// notification relay jobs. Each RCPT TO recipient encodes an LDAP group target
+// and its delivery channels in the address local part ("group+sms+voice") and
+// becomes its own notification, so different groups in one message can target
+// different channels. The Subject becomes the event name; the body is the
+// message. For backward compatibility, channels may instead be supplied via
+// the From: header.
 type SMTPServer struct {
 	cfg        config.SMTPServerConfig
 	q          *db.Queries
