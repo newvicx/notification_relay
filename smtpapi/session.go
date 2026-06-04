@@ -70,7 +70,7 @@ func (sess *session) Auth(mech string) (sasl.Server, error) {
 
 		roles := resolveRoles(result.Groups, sess.s.roleConfig)
 		if !hasPermission(roles, permPublish) {
-			sess.writeAuditLogAs(ctx, username, "smtp_login_failed", "", "", "")
+			sess.writeAuditLogAs(ctx, username, "smtp_unauthorized", "", "", "")
 			return &gosmtp.SMTPError{
 				Code:         550,
 				EnhancedCode: gosmtp.EnhancedCode{5, 7, 1},
@@ -81,7 +81,7 @@ func (sess *session) Auth(mech string) (sasl.Server, error) {
 		sess.username = username
 		sess.authed = true
 
-		sess.writeAuditLog(ctx, "smtp_login", "", "", "")
+		// sess.writeAuditLog(ctx, "smtp_login", "", "", "")
 		return nil
 	}), nil
 }
