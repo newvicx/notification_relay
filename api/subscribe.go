@@ -48,6 +48,8 @@ var subscribeFormTmpl = template.Must(template.New("subscribe").Parse(`<!DOCTYPE
 <body>
 <h1>Register for SMS Notifications</h1>
 <p class="desc">Enter your company credentials to opt in to SMS alerts for process alarms sent to your company mobile phone.</p>
+{{if .Flash}}<div class="msg {{.FlashClass}}">{{.Flash}}</div>{{end}}
+{{if .Done}}{{else}}
 <form method="POST" action="/subscribe">
   <label for="username">Username</label>
   <input type="text" id="username" name="username" autocomplete="username" required>
@@ -55,6 +57,7 @@ var subscribeFormTmpl = template.Must(template.New("subscribe").Parse(`<!DOCTYPE
   <input type="password" id="password" name="password" autocomplete="current-password" required>
   <button type="submit">Register</button>
 </form>
+{{end}}
 <div class="footer">
   <p class="desc">By entering your credentials you consent to allow AbbVie to send you alarms and alerts to your company issued mobile phone number.</p>
   <div class="container">
