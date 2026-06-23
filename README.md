@@ -180,7 +180,7 @@ The SMTP ingestion server converts inbound email into notification relay jobs. I
 | `listen_addr` | — | TCP address to listen on (e.g. `":2525"`). Empty disables the server. |
 | `domain` | — | Accepted relay domain (e.g. `"relay.local"`). Required when `listen_addr` is set. RCPT TO addresses must match this domain; their local part encodes the group and delivery channels (`group+sms+voice`). |
 | `max_message_bytes` | `1048576` (1 MB) | Maximum size of an inbound message in bytes |
-| `tls_cert_file` | — | Path to a PEM TLS certificate. STARTTLS is enabled when both this and `tls_key_file` are set. |
+| `tls_cert_file` | — | Path to a PEM TLS certificate. Implicit TLS is enabled when both this and `tls_key_file` are set. |
 | `tls_key_file` | — | Path to the PEM private key matching `tls_cert_file` |
 
 ### Twilio
@@ -417,9 +417,9 @@ Notes:
 
 Senders authenticate via SASL PLAIN. Credentials are verified against LDAP; only users with the `publisher` or `admin` role may send. Each accepted message writes three audit log entries: `smtp_login`, `create_event`, and `create_notification`.
 
-### STARTTLS
+### TLS
 
-STARTTLS is advertised and available when `smtp_server.tls_cert_file` and `smtp_server.tls_key_file` are both set. Without TLS files, the server accepts plaintext connections (suitable for trusted internal networks only).
+The server requires implicit TLS (the client must begin the TLS handshake immediately on connect, like SMTPS on port 465) when `smtp_server.tls_cert_file` and `smtp_server.tls_key_file` are both set. STARTTLS is not supported. Without TLS files, the server accepts plaintext connections (suitable for trusted internal networks only).
 
 ### Example (curl as SMTP client)
 
