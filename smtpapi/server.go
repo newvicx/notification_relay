@@ -71,12 +71,7 @@ func NewSMTPServer(
 // Start begins accepting SMTP connections. It blocks until the server closes.
 func (s *SMTPServer) Start() error {
 	s.logger.Info("smtp server listening", "addr", s.cfg.ListenAddr)
-	if s.cfg.TLSCertFile != "" && s.cfg.TLSKeyFile != "" {
-		return s.srv.ListenAndServeTLS()
-	} else {
-		return s.srv.ListenAndServe()
-	}
-
+	return s.srv.ListenAndServe()
 }
 
 // Shutdown gracefully stops the server, waiting for in-flight sessions to
