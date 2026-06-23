@@ -252,7 +252,7 @@ func (sess *session) Data(r io.Reader) error {
 			Channels:       sql.NullString{String: string(channelsJSON), Valid: true},
 			Message:        message,
 			MemberCount:    0,
-			EmailTemplate:  sql.NullString{},
+			EmailTemplate:  sql.NullString{String: "default", Valid: true},
 			EmailVars:      sql.NullString{},
 			CreatedAt:      now,
 			CreatedBy:      nullString(sess.username),
