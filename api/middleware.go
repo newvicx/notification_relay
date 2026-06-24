@@ -46,7 +46,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 		roles := resolveRoles(result.Groups, s.roleConfig)
 		user := &User{Username: username, DN: result.UserDN, Roles: roles}
 
-		// s.auditLog(r.Context(), username, ip, "login", "auth", "", "")
+		s.auditLog(r.Context(), username, ip, "login", "auth", "", "")
 
 		ctx := context.WithValue(r.Context(), ctxKey{}, user)
 		next.ServeHTTP(w, r.WithContext(ctx))
