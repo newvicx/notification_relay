@@ -301,7 +301,7 @@ func TestEndEvent_CustomTime(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{"event_id": "EVT-CT"})
 	do(srv, "POST", "/api/v1/events", body)
 
-	endTime := "2025-01-01T12:00:00Z"
+	endTime := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
 	endBody, _ := json.Marshal(map[string]any{"end_time": endTime})
 	w := do(srv, "POST", "/api/v1/events/EVT-CT/end", endBody)
 	if w.Code != http.StatusOK {
