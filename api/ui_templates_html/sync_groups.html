@@ -1,0 +1,38 @@
+{{define "content"}}
+<h1>Sync Groups</h1>
+<p class="muted">LDAP groups mirrored into the local member database for delivery expansion.</p>
+
+<div class="card">
+  <form method="POST" action="/ui/groups/sync">
+    <label for="group_name">LDAP group name</label>
+    <input type="text" id="group_name" name="group_name" required>
+    <button type="submit">Add group</button>
+  </form>
+</div>
+
+<table>
+  <thead>
+    <tr><th>Group</th><th>Added by</th><th>Added at</th><th></th></tr>
+  </thead>
+  <tbody>
+    {{range .Data.Groups}}
+    <tr>
+      <td>{{.GroupName}}</td>
+      <td>{{.CreatedBy}}</td>
+      <td>{{.CreatedAt}}</td>
+      <td>
+        <button type="button" class="danger"
+          hx-post="/ui/groups/sync/{{.GroupName}}/delete"
+          hx-confirm="Remove {{.GroupName}} from sync?"
+          hx-target="closest tr"
+          hx-swap="outerHTML">
+          Remove
+        </button>
+      </td>
+    </tr>
+    {{else}}
+    <tr><td colspan="4" class="muted">No sync groups configured.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}

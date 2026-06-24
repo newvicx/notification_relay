@@ -1,0 +1,22 @@
+{{define "deliveries_fragment.html"}}
+<table>
+  <thead>
+    <tr><th>Group</th><th>Member</th><th>Destination</th><th>Channel</th><th>Status</th><th>Attempt</th><th>Sent</th></tr>
+  </thead>
+  <tbody>
+    {{range .}}
+    <tr>
+      <td>{{.Group}}</td>
+      <td>{{.Member}}</td>
+      <td>{{.Destination}}</td>
+      <td>{{.Channel}}</td>
+      <td>{{.Status}}{{if .ErrorMessage}} <span class="muted">({{.ErrorMessage}})</span>{{end}}</td>
+      <td>{{.Attempt}}</td>
+      <td>{{.SentAt}}</td>
+    </tr>
+    {{else}}
+    <tr><td colspan="7" class="muted">No deliveries yet.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}

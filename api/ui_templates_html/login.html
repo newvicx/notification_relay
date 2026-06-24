@@ -1,0 +1,14 @@
+{{define "content"}}
+<div class="login-wrap">
+  <div class="card">
+    <h1>Sign in</h1>
+    <form method="POST" action="/ui/login">
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" autocomplete="current-password" required>
+      <button type="submit">Sign in</button>
+    </form>
+  </div>
+</div>
+{{end}}

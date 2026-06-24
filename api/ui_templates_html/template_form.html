@@ -1,0 +1,25 @@
+{{define "content"}}
+<h1>{{if .Data.Editing}}Edit Template{{else}}New Template{{end}}</h1>
+
+<div class="card">
+  <form method="POST" action="{{if .Data.Editing}}/ui/templates/{{.Data.TemplateName}}/edit{{else}}/ui/templates/new{{end}}">
+    <label for="template_name">Template name</label>
+    <input type="text" id="template_name" name="template_name" value="{{.Data.TemplateName}}"
+      {{if .Data.Editing}}readonly{{else}}required{{end}}>
+
+    <label for="subject">Subject</label>
+    <input type="text" id="subject" name="subject" value="{{.Data.Subject}}" required>
+
+    <label for="body">Body</label>
+    <textarea id="body" name="body" rows="10" required>{{.Data.Body}}</textarea>
+
+    <label for="required_vars">Required variables (comma-separated)</label>
+    <input type="text" id="required_vars" name="required_vars" value="{{.Data.RequiredVars}}">
+
+    <label for="description">Description</label>
+    <input type="text" id="description" name="description" value="{{.Data.Description}}">
+
+    <button type="submit">{{if .Data.Editing}}Save{{else}}Create{{end}}</button>
+  </form>
+</div>
+{{end}}

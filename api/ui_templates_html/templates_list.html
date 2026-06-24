@@ -1,0 +1,40 @@
+{{define "content"}}
+<h1>Templates</h1>
+<p class="muted">Email/SMS templates rendered with stored variables.</p>
+
+{{if .IsAdmin}}
+<div class="card">
+  <a href="/ui/templates/new"><button type="button">New template</button></a>
+</div>
+{{end}}
+
+<table>
+  <thead>
+    <tr><th>Name</th><th>Description</th><th>Required Vars</th><th></th></tr>
+  </thead>
+  <tbody>
+    {{$isAdmin := .IsAdmin}}
+    {{range .Data.Templates}}
+    <tr>
+      <td>{{.TemplateName}}</td>
+      <td>{{.Description}}</td>
+      <td>{{.RequiredVars}}</td>
+      <td>
+        {{if $isAdmin}}
+        <a href="/ui/templates/{{.TemplateName}}/edit">Edit</a>
+        <button type="button" class="danger"
+          hx-post="/ui/templates/{{.TemplateName}}/delete"
+          hx-confirm="Delete template {{.TemplateName}}?"
+          hx-target="closest tr"
+          hx-swap="outerHTML">
+          Delete
+        </button>
+        {{end}}
+      </td>
+    </tr>
+    {{else}}
+    <tr><td colspan="4" class="muted">No templates configured.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}
