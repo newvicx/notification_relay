@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"errors"
+	"html/template"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -27,9 +29,15 @@ type Server struct {
 	userLookup      ldap.UserLookup
 	roleConfig      map[string][]string
 	eventSeverities []string
+	uiSessions      *uiSessionStore
+	uiCancel        context.CancelFunc
+	uiPages         map[string]*template.Template
+	uiFragments     map[string]*template.Template
 }
 
 func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, logger *slog.Logger, auth ldap.Authenticator, groupVerifier ldap.GroupVerifier, userLookup ldap.UserLookup, roleConfig map[string][]string, eventSeverities []string) *Server {
+	uiCtx, uiCancel := context.WithCancel(context.Background())
+	uiPages, uiFragments := mustLoadUITemplates()
 	s := &Server{
 		cfg:             cfg,
 		q:               q,
@@ -40,7 +48,14 @@ func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, lo
 		userLookup:      userLookup,
 		roleConfig:      roleConfig,
 		eventSeverities: eventSeverities,
+		uiSessions:      newUISessionStore(),
+		uiCancel:        uiCancel,
+		uiPages:         uiPages,
+		uiFragments:     uiFragments,
 	}
+	// sweepExpired runs until uiCtx is cancelled, which Shutdown does via
+	// s.uiCancel(); main.go calls Shutdown on SIGINT/SIGTERM.
+	go s.uiSessions.sweepExpired(uiCtx)
 	mux := http.NewServeMux()
 	if fileExists(cfg.SpecPath) {
 		spec, err := os.ReadFile(cfg.SpecPath)
@@ -136,6 +151,48 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		s.authenticate(http.HandlerFunc(s.handleSelfUnsubscribe)))
 	mux.Handle("DELETE /api/v1/sms-subscriptions/{username}",
 		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleDeleteSMSSubscription))))
+
+	// Web UI (session-cookie auth, reuses the JSON API's RBAC and audit logging)
+	mux.HandleFunc("GET /ui/login", s.handleUILoginForm)
+	mux.HandleFunc("POST /ui/login", s.handleUILoginSubmit)
+	mux.HandleFunc("POST /ui/logout", s.handleUILogout)
+	mux.HandleFunc("GET /ui/{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ui/events", http.StatusSeeOther)
+	})
+
+	mux.Handle("GET /ui/events",
+		s.authenticateSession(s.requirePermissions(PermRead)(http.HandlerFunc(s.handleUIListEvents))))
+	mux.Handle("GET /ui/events/{event_id}",
+		s.authenticateSession(s.requirePermissions(PermRead)(http.HandlerFunc(s.handleUIGetEvent))))
+	mux.Handle("GET /ui/notifications/{notification_id}/deliveries-partial",
+		s.authenticateSession(s.requirePermissions(PermRead)(http.HandlerFunc(s.handleUINotificationDeliveriesPartial))))
+
+	mux.Handle("GET /ui/groups/sync",
+		s.authenticateSession(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleUIListSyncGroups))))
+	mux.Handle("POST /ui/groups/sync",
+		s.authenticateSession(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleUICreateSyncGroup))))
+	mux.Handle("POST /ui/groups/sync/{group_name}/delete",
+		s.authenticateSession(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleUIDeleteSyncGroup))))
+
+	mux.Handle("GET /ui/templates",
+		s.authenticateSession(s.requirePermissions(PermRead)(http.HandlerFunc(s.handleUIListTemplates))))
+	mux.Handle("GET /ui/templates/new",
+		s.authenticateSession(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleUINewTemplateForm))))
+	mux.Handle("POST /ui/templates/new",
+		s.authenticateSession(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleUICreateTemplate))))
+	mux.Handle("GET /ui/templates/{template_name}/edit",
+		s.authenticateSession(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleUIEditTemplateForm))))
+	mux.Handle("POST /ui/templates/{template_name}/edit",
+		s.authenticateSession(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleUIUpdateTemplate))))
+	mux.Handle("POST /ui/templates/{template_name}/delete",
+		s.authenticateSession(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleUIDeleteTemplate))))
+
+	uiStaticSub, err := fs.Sub(uiStaticFS, "ui_static")
+	if err != nil {
+		s.logger.Error("failed to mount ui static assets", "error", err)
+	} else {
+		mux.Handle("GET /ui/static/", http.StripPrefix("/ui/static/", http.FileServerFS(uiStaticSub)))
+	}
 }
 
 // Handler returns the underlying HTTP handler, useful for testing with httptest.
@@ -152,6 +209,7 @@ func (s *Server) Start() error {
 // Shutdown gracefully stops the server, waiting up to ShutdownTimeout for
 // in-flight requests to complete.
 func (s *Server) Shutdown(ctx context.Context) error {
+	s.uiCancel()
 	return s.srv.Shutdown(ctx)
 }
 

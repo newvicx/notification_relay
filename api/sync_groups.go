@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -25,12 +26,22 @@ func toSyncGroupResponse(g db.SyncGroup) syncGroupResponse {
 	}
 }
 
-// handleListSyncGroups returns all configured sync groups.
-func (s *Server) handleListSyncGroups(w http.ResponseWriter, r *http.Request) {
-	groups, err := s.q.ListSyncGroups(r.Context())
+// listSyncGroupsCore returns all configured sync groups.
+// Shared by the JSON API and the UI sync groups page.
+func (s *Server) listSyncGroupsCore(ctx context.Context) ([]db.SyncGroup, error) {
+	groups, err := s.q.ListSyncGroups(ctx)
 	if err != nil {
 		s.logger.Error("list sync groups failed", "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return nil, newCoreError(http.StatusInternalServerError, "internal server error")
+	}
+	return groups, nil
+}
+
+// handleListSyncGroups is the JSON API wrapper around listSyncGroupsCore.
+func (s *Server) handleListSyncGroups(w http.ResponseWriter, r *http.Request) {
+	groups, err := s.listSyncGroupsCore(r.Context())
+	if err != nil {
+		writeCoreError(w, err)
 		return
 	}
 	resp := make([]syncGroupResponse, len(groups))
@@ -41,9 +52,44 @@ func (s *Server) handleListSyncGroups(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-// handleCreateSyncGroup adds a new LDAP group to the sync list.
-// Returns 409 if the group is already configured.
-// Returns 422 if the group does not exist in LDAP.
+// createSyncGroupCore adds a new LDAP group to the sync list.
+// Returns a 409 coreError if the group is already configured, or 422 if the
+// group does not exist in LDAP. Shared by the JSON API and the UI sync groups page.
+func (s *Server) createSyncGroupCore(r *http.Request, groupName string) (db.SyncGroup, error) {
+	if groupName == "" {
+		return db.SyncGroup{}, newCoreError(http.StatusUnprocessableEntity, "group_name is required")
+	}
+
+	ctx := r.Context()
+	user, _ := UserFromContext(ctx)
+
+	if _, err := s.q.GetSyncGroup(ctx, groupName); err == nil {
+		return db.SyncGroup{}, newCoreError(http.StatusConflict, "sync group already exists")
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		s.logger.Error("create sync group: check existing failed", "name", groupName, "error", err)
+		return db.SyncGroup{}, newCoreError(http.StatusInternalServerError, "internal server error")
+	}
+
+	if err := s.groupVerifier.VerifyGroup(ctx, groupName); err != nil {
+		s.logger.Warn("create sync group: ldap verification failed", "name", groupName, "error", err)
+		return db.SyncGroup{}, newCoreError(http.StatusUnprocessableEntity, "group not found in LDAP: "+err.Error())
+	}
+
+	g, err := s.q.InsertSyncGroup(ctx, db.InsertSyncGroupParams{
+		GroupName: groupName,
+		CreatedBy: user.Username,
+	})
+	if err != nil {
+		s.logger.Error("create sync group: insert failed", "name", groupName, "error", err)
+		return db.SyncGroup{}, newCoreError(http.StatusInternalServerError, "internal server error")
+	}
+
+	s.auditLogAction(r, "create_sync_group", "sync_groups", "", marshalAuditJSON(g))
+
+	return g, nil
+}
+
+// handleCreateSyncGroup is the JSON API wrapper around createSyncGroupCore.
 func (s *Server) handleCreateSyncGroup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		GroupName string `json:"group_name"`
@@ -52,70 +98,51 @@ func (s *Server) handleCreateSyncGroup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
-	if req.GroupName == "" {
-		http.Error(w, "group_name is required", http.StatusUnprocessableEntity)
-		return
-	}
 
-	ctx := r.Context()
-	user, _ := UserFromContext(ctx)
-
-	if _, err := s.q.GetSyncGroup(ctx, req.GroupName); err == nil {
-		http.Error(w, "sync group already exists", http.StatusConflict)
-		return
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		s.logger.Error("create sync group: check existing failed", "name", req.GroupName, "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	if err := s.groupVerifier.VerifyGroup(ctx, req.GroupName); err != nil {
-		s.logger.Warn("create sync group: ldap verification failed", "name", req.GroupName, "error", err)
-		http.Error(w, "group not found in LDAP: "+err.Error(), http.StatusUnprocessableEntity)
-		return
-	}
-
-	g, err := s.q.InsertSyncGroup(ctx, db.InsertSyncGroupParams{
-		GroupName: req.GroupName,
-		CreatedBy: user.Username,
-	})
+	g, err := s.createSyncGroupCore(r, req.GroupName)
 	if err != nil {
-		s.logger.Error("create sync group: insert failed", "name", req.GroupName, "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeCoreError(w, err)
 		return
 	}
-
-	s.auditLogAction(r, "create_sync_group", "sync_groups", "", marshalAuditJSON(g))
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(toSyncGroupResponse(g))
 }
 
-// handleDeleteSyncGroup removes a group from the sync list.
-// Returns 404 if the group is not configured.
-func (s *Server) handleDeleteSyncGroup(w http.ResponseWriter, r *http.Request) {
-	groupName := r.PathValue("group_name")
+// deleteSyncGroupCore removes a group from the sync list.
+// Returns a 404 coreError if the group is not configured.
+// Shared by the JSON API and the UI sync groups page.
+func (s *Server) deleteSyncGroupCore(r *http.Request, groupName string) error {
 	ctx := r.Context()
 
 	g, err := s.q.GetSyncGroup(ctx, groupName)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "sync group not found", http.StatusNotFound)
-			return
+			return newCoreError(http.StatusNotFound, "sync group not found")
 		}
 		s.logger.Error("delete sync group: get failed", "name", groupName, "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
+		return newCoreError(http.StatusInternalServerError, "internal server error")
 	}
 
 	if err := s.q.DeleteSyncGroup(ctx, groupName); err != nil {
 		s.logger.Error("delete sync group: delete failed", "name", groupName, "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
+		return newCoreError(http.StatusInternalServerError, "internal server error")
 	}
 
 	s.auditLogAction(r, "delete_sync_group", "sync_groups", marshalAuditJSON(g), "")
+
+	return nil
+}
+
+// handleDeleteSyncGroup is the JSON API wrapper around deleteSyncGroupCore.
+func (s *Server) handleDeleteSyncGroup(w http.ResponseWriter, r *http.Request) {
+	groupName := r.PathValue("group_name")
+
+	if err := s.deleteSyncGroupCore(r, groupName); err != nil {
+		writeCoreError(w, err)
+		return
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }

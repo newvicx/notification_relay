@@ -1,0 +1,39 @@
+{{define "content"}}
+<h1>Events</h1>
+<form class="filters" method="GET" action="/ui/events">
+  <div>
+    <label for="start_from">Start from</label>
+    <input type="datetime-local" id="start_from" name="start_from" value="{{.Data.StartFrom}}">
+  </div>
+  <div>
+    <label for="start_to">Start to</label>
+    <input type="datetime-local" id="start_to" name="start_to" value="{{.Data.StartTo}}">
+  </div>
+  <button type="submit">Filter</button>
+  <a class="button-link" href="/ui/events">Clear</a>
+</form>
+
+<table>
+  <thead>
+    <tr><th>Event</th><th>Severity</th><th>Start</th><th>End</th><th></th></tr>
+  </thead>
+  <tbody>
+    {{range .Data.Events}}
+    <tr>
+      <td>{{.EventName}}<div class="muted">{{.EventID}}</div></td>
+      <td>{{if .EventSeverity}}<span class="severity">{{.EventSeverity}}</span>{{end}}</td>
+      <td>{{.StartTime}}</td>
+      <td>{{.EndTime}}</td>
+      <td><a href="/ui/events/{{.EventID}}">View</a></td>
+    </tr>
+    {{else}}
+    <tr><td colspan="5" class="muted">No events found.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+
+<div class="pagination">
+  {{if gt .Data.Offset 0}}<a href="/ui/events?{{.Data.PrevQuery}}">&larr; Newer</a>{{end}}
+  {{if .Data.HasNext}}<a href="/ui/events?{{.Data.NextQuery}}">Older &rarr;</a>{{end}}
+</div>
+{{end}}

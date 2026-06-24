@@ -316,27 +316,26 @@ func (s *Server) handleUpdateEvent(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(toEventResponse(updated))
 }
 
-// handleListEvents returns a paginated list of events ordered by start_time DESC.
+// listEventsCore returns a paginated list of events ordered by start_time DESC.
 // Query params: limit (default 50, max 200), offset (default 0),
 // start_from (RFC3339, inclusive lower bound on start_time),
 // start_to (RFC3339, inclusive upper bound on start_time).
-func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
+// Shared by the JSON API and the UI events list page.
+func (s *Server) listEventsCore(r *http.Request) ([]db.Event, int64, int64, error) {
 	limit := int64(50)
 	offset := int64(0)
 
 	if v := r.URL.Query().Get("limit"); v != "" {
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || n < 1 || n > 200 {
-			http.Error(w, "limit must be an integer between 1 and 200", http.StatusBadRequest)
-			return
+			return nil, 0, 0, newCoreError(http.StatusBadRequest, "limit must be an integer between 1 and 200")
 		}
 		limit = n
 	}
 	if v := r.URL.Query().Get("offset"); v != "" {
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || n < 0 {
-			http.Error(w, "offset must be a non-negative integer", http.StatusBadRequest)
-			return
+			return nil, 0, 0, newCoreError(http.StatusBadRequest, "offset must be a non-negative integer")
 		}
 		offset = n
 	}
@@ -347,16 +346,14 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
 	if v := r.URL.Query().Get("start_from"); v != "" {
 		normalized, err := parseTimeToRFC3339(v)
 		if err != nil {
-			http.Error(w, "invalid start_from: "+err.Error(), http.StatusBadRequest)
-			return
+			return nil, 0, 0, newCoreError(http.StatusBadRequest, "invalid start_from: "+err.Error())
 		}
 		startFrom = normalized
 	}
 	if v := r.URL.Query().Get("start_to"); v != "" {
 		normalized, err := parseTimeToRFC3339(v)
 		if err != nil {
-			http.Error(w, "invalid start_to: "+err.Error(), http.StatusBadRequest)
-			return
+			return nil, 0, 0, newCoreError(http.StatusBadRequest, "invalid start_to: "+err.Error())
 		}
 		startTo = normalized
 	}
@@ -369,7 +366,17 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		s.logger.Error("list events failed", "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return nil, 0, 0, newCoreError(http.StatusInternalServerError, "internal server error")
+	}
+
+	return events, limit, offset, nil
+}
+
+// handleListEvents is the JSON API wrapper around listEventsCore.
+func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
+	events, limit, offset, err := s.listEventsCore(r)
+	if err != nil {
+		writeCoreError(w, err)
 		return
 	}
 
@@ -386,18 +393,28 @@ func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
 	}{Events: resp, Limit: limit, Offset: offset})
 }
 
-// handleGetEvent returns a single event by event_id.
-func (s *Server) handleGetEvent(w http.ResponseWriter, r *http.Request) {
+// getEventCore returns a single event by the event_id path value.
+// Shared by the JSON API and the UI event detail page.
+func (s *Server) getEventCore(r *http.Request) (db.Event, error) {
 	eventID := r.PathValue("event_id")
 
 	event, err := s.q.GetEventByEventID(r.Context(), eventID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "event not found", http.StatusNotFound)
-			return
+			return db.Event{}, newCoreError(http.StatusNotFound, "event not found")
 		}
 		s.logger.Error("get event failed", "event_id", eventID, "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return db.Event{}, newCoreError(http.StatusInternalServerError, "internal server error")
+	}
+
+	return event, nil
+}
+
+// handleGetEvent is the JSON API wrapper around getEventCore.
+func (s *Server) handleGetEvent(w http.ResponseWriter, r *http.Request) {
+	event, err := s.getEventCore(r)
+	if err != nil {
+		writeCoreError(w, err)
 		return
 	}
 
@@ -476,25 +493,34 @@ func (s *Server) handleEndEvent(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(toEventResponse(event))
 }
 
-// handleListEventNotifications returns all notifications for a given event.
-func (s *Server) handleListEventNotifications(w http.ResponseWriter, r *http.Request) {
+// listEventNotificationsCore returns all notifications for a given event.
+// Shared by the JSON API and the UI event detail page.
+func (s *Server) listEventNotificationsCore(r *http.Request) ([]db.Notification, error) {
 	eventID := r.PathValue("event_id")
 
 	// Verify event exists.
 	if _, err := s.q.GetEventByEventID(r.Context(), eventID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "event not found", http.StatusNotFound)
-			return
+			return nil, newCoreError(http.StatusNotFound, "event not found")
 		}
 		s.logger.Error("list event notifications: get event failed", "event_id", eventID, "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
+		return nil, newCoreError(http.StatusInternalServerError, "internal server error")
 	}
 
 	notifications, err := s.q.ListNotificationsByEventID(r.Context(), eventID)
 	if err != nil {
 		s.logger.Error("list event notifications failed", "event_id", eventID, "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return nil, newCoreError(http.StatusInternalServerError, "internal server error")
+	}
+
+	return notifications, nil
+}
+
+// handleListEventNotifications is the JSON API wrapper around listEventNotificationsCore.
+func (s *Server) handleListEventNotifications(w http.ResponseWriter, r *http.Request) {
+	notifications, err := s.listEventNotificationsCore(r)
+	if err != nil {
+		writeCoreError(w, err)
 		return
 	}
 
@@ -540,27 +566,36 @@ func (s *Server) handleGetNotification(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(nr)
 }
 
-// handleListNotificationDeliveries returns all deliveries for a given notification.
-func (s *Server) handleListNotificationDeliveries(w http.ResponseWriter, r *http.Request) {
+// listNotificationDeliveriesCore returns all deliveries for a given notification.
+// Shared by the JSON API and the UI event detail page's delivery drill-down.
+func (s *Server) listNotificationDeliveriesCore(r *http.Request) ([]db.Delivery, error) {
 	notificationID := r.PathValue("notification_id")
 
 	// Verify notification exists.
 	if _, err := s.q.GetNotificationByNotificationID(r.Context(), notificationID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "notification not found", http.StatusNotFound)
-			return
+			return nil, newCoreError(http.StatusNotFound, "notification not found")
 		}
 		s.logger.Error("list notification deliveries: get notification failed",
 			"notification_id", notificationID, "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
+		return nil, newCoreError(http.StatusInternalServerError, "internal server error")
 	}
 
 	deliveries, err := s.q.ListDeliveriesByNotificationID(r.Context(), notificationID)
 	if err != nil {
 		s.logger.Error("list notification deliveries failed",
 			"notification_id", notificationID, "error", err)
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return nil, newCoreError(http.StatusInternalServerError, "internal server error")
+	}
+
+	return deliveries, nil
+}
+
+// handleListNotificationDeliveries is the JSON API wrapper around listNotificationDeliveriesCore.
+func (s *Server) handleListNotificationDeliveries(w http.ResponseWriter, r *http.Request) {
+	deliveries, err := s.listNotificationDeliveriesCore(r)
+	if err != nil {
+		writeCoreError(w, err)
 		return
 	}
 

@@ -1,0 +1,45 @@
+{{define "content"}}
+<p><a href="/ui/events">&larr; Back to events</a></p>
+<h1>{{.Data.Event.EventName}}</h1>
+<p class="muted">{{.Data.Event.EventID}}</p>
+<table>
+  <tbody>
+    <tr><th>Severity</th><td>{{.Data.Event.EventSeverity}}</td></tr>
+    <tr><th>URL</th><td>{{.Data.Event.EventURL}}</td></tr>
+    <tr><th>Description</th><td>{{.Data.Event.EventDescription}}</td></tr>
+    <tr><th>Start</th><td>{{.Data.Event.StartTime}}</td></tr>
+    <tr><th>End</th><td>{{.Data.Event.EndTime}}</td></tr>
+    <tr><th>Created by</th><td>{{.Data.Event.CreatedBy}} at {{.Data.Event.CreatedAt}}</td></tr>
+  </tbody>
+</table>
+
+<h2>Notifications</h2>
+<table>
+  <thead>
+    <tr><th>Message</th><th>Channels</th><th>Groups</th><th>Members</th><th>Status</th><th>Created</th><th></th></tr>
+  </thead>
+  <tbody>
+    {{range .Data.Notifications}}
+    <tr>
+      <td>{{.Message}}</td>
+      <td>{{.Channels}}</td>
+      <td>{{.Groups}}</td>
+      <td>{{.MemberCount}}</td>
+      <td>{{.Status}}{{if .ErrorMessage}} <span class="muted">({{.ErrorMessage}})</span>{{end}}</td>
+      <td>{{.CreatedAt}}</td>
+      <td>
+        <button type="button"
+          hx-get="/ui/notifications/{{.NotificationID}}/deliveries-partial"
+          hx-target="#deliveries-{{.NotificationID}}"
+          hx-swap="innerHTML">
+          Deliveries
+        </button>
+      </td>
+    </tr>
+    <tr class="detail-row"><td colspan="7" id="deliveries-{{.NotificationID}}"></td></tr>
+    {{else}}
+    <tr><td colspan="7" class="muted">No notifications for this event.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{.Title}} - Notification Relay</title>
+<link rel="stylesheet" href="/ui/static/style.css">
+<script src="/ui/static/htmx.min.js"></script>
+</head>
+<body>
+{{if .User}}
+<nav class="navbar">
+  <span class="brand">Notification Relay</span>
+  <a href="/ui/events">Events</a>
+  {{if .IsAdmin}}<a href="/ui/groups/sync">Sync Groups</a>{{end}}
+  <a href="/ui/templates">Templates</a>
+  <span class="spacer"></span>
+  <span class="user">{{.User.Username}}</span>
+  <form class="inline" method="POST" action="/ui/logout">
+    <button type="submit" class="link-button">Logout</button>
+  </form>
+</nav>
+{{end}}
+<main>
+{{if .Flash}}<div class="msg {{.FlashClass}}">{{.Flash}}</div>{{end}}
+{{template "content" .}}
+</main>
+</body>
+</html>
