@@ -23,6 +23,7 @@ A notification delivery relay that sends alerts through Email, SMS, and Voice to
 - [Email Templates](#email-templates)
 - [SMS Subscriptions](#sms-subscriptions)
 - [SMTP Ingestion Server](#smtp-ingestion-server)
+- [Web UI](#web-ui)
 - [CLI (nrcli)](#cli-nrcli)
 
 ---
@@ -37,6 +38,7 @@ Key features:
 - **LDAP-backed membership** — Group membership is periodically synced from LDAP; no manual roster management
 - **Direct-destination delivery** — Target individual phone numbers or email addresses without LDAP group membership
 - **SMTP ingestion** — Third-party systems can publish notifications by sending an email to the relay; groups and channels are encoded in the envelope
+- **Web UI** — Server-rendered browser interface for browsing events, managing sync groups, and editing email templates, with cookie-based login
 - **SMS opt-in/opt-out** — Self-service web forms and API for SMS subscription management; dispatcher enforces subscription before sending
 - **RBAC** — Role assignment driven by LDAP group membership
 - **Audit logging** — All mutating API calls are recorded
@@ -436,6 +438,37 @@ EOF
 ```
 
 Use `smtp://` instead if `smtp_server.tls_cert_file`/`tls_key_file` are unset (plaintext mode).
+
+---
+
+## Web UI
+
+A server-rendered web UI is available for operators who prefer a browser over the CLI or raw API. It is built with [htmx](https://htmx.org/) and Go's `html/template`, with all assets embedded in the binary — there is no separate frontend build or deployment. The UI is served from the same HTTP listener as the API, under the `/ui` path prefix, and is always enabled.
+
+Open `http://<host>:<port>/ui` in a browser; unauthenticated visitors are redirected to the login page.
+
+### Authentication
+
+Unlike the JSON API (which uses HTTP Basic Auth on every request), the UI uses a server-side session established at login:
+
+- Sign in at `/ui/login` with the same LDAP credentials used for the API. Authentication and role resolution go through the same LDAP authenticator and `ldap.roles` mapping, so the same [RBAC](#authentication--rbac) rules apply.
+- On success a session cookie (`nr_session`, `HttpOnly`, `SameSite=Lax`, and `Secure` over HTTPS) is set. Sessions are held in memory with an 8-hour sliding expiry and are cleared on logout. A server restart ends all sessions.
+- Only users who resolve to at least the `reader` role may sign in.
+
+### Pages
+
+| Path | Role | Description |
+|---|---|---|
+| `/ui/login`, `/ui/logout` | — | Sign in / sign out |
+| `/ui/events` | reader | Paginated event list, filterable by start-time range |
+| `/ui/events/{event_id}` | reader | Event detail with its notifications; each notification expands inline to show delivery records |
+| `/ui/groups/sync` | admin | List, add, and remove [sync groups](#managing-sync-groups) |
+| `/ui/templates` | reader | List [email templates](#email-templates) (view-only for non-admins) |
+| `/ui/templates/new`, `/ui/templates/{name}/edit` | admin | Create and edit templates |
+
+Navigation links for admin-only areas are hidden from users who lack the `admin` role, and every route enforces its required permission server-side regardless of what the navigation shows.
+
+The UI shares the same underlying business logic, validation, and audit logging as the JSON API — actions taken in the browser (creating a template, adding a sync group, etc.) appear in the audit log identically to their API equivalents.
 
 ---
 
