@@ -7,7 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"notification_relay/api"
+	"notification_relay/config"
 	"notification_relay/db"
+	ldap "notification_relay/ldap"
+	"notification_relay/notify"
+	"notification_relay/testutil"
 )
 
 func insertAuditEntry(t *testing.T, q *db.Queries, username, action, timestamp string) {
@@ -26,9 +31,9 @@ func insertAuditEntry(t *testing.T, q *db.Queries, username, action, timestamp s
 	}
 }
 
-func TestListAuditLog_ContainsAuthEntries(t *testing.T) {
-	// The authenticate middleware writes a "login" entry on every request, so the
-	// audit log is never empty after the first authenticated call.
+func TestListAuditLog_NoEntryOnSuccessfulLogin(t *testing.T) {
+	// Successful logins are not audited, to avoid flooding the audit log with
+	// routine activity. Only the data-mutation and login_failed entries land here.
 	srv, _ := newAdminServerWithQ(t)
 	w := do(srv, "GET", "/api/v1/audit", nil)
 	if w.Code != http.StatusOK {
@@ -37,8 +42,46 @@ func TestListAuditLog_ContainsAuthEntries(t *testing.T) {
 	var resp map[string]any
 	json.NewDecoder(w.Body).Decode(&resp)
 	entries, ok := resp["entries"].([]any)
+	if !ok || len(entries) != 0 {
+		t.Errorf("want 0 audit entries after a successful login, got %v", resp["entries"])
+	}
+}
+
+func TestListAuditLog_ContainsFailedLoginEntries(t *testing.T) {
+	_, q := testutil.OpenDB(t)
+	queue := make(chan notify.Job, 16)
+	roleConfig := map[string][]string{"admin": {"grp-admins"}}
+
+	failingSrv := api.NewServer(config.HTTPConfig{}, q, queue, noopLogger(),
+		&stubAuth{err: ldap.ErrInvalidCredentials}, okGroupVerifier(), &stubUserLookup{}, roleConfig, []string{"test"})
+	w := do(failingSrv, "GET", "/api/v1/audit", nil)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d: %s", w.Code, w.Body)
+	}
+
+	adminSrv := api.NewServer(config.HTTPConfig{}, q, queue, noopLogger(),
+		&stubAuth{result: &ldap.AuthResult{UserDN: "CN=admin,DC=example,DC=com", Groups: []string{"grp-admins"}}},
+		okGroupVerifier(), &stubUserLookup{}, roleConfig, []string{"test"})
+	w = do(adminSrv, "GET", "/api/v1/audit", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	entries, ok := resp["entries"].([]any)
 	if !ok || len(entries) == 0 {
-		t.Errorf("want at least 1 audit entry (login), got %v", resp["entries"])
+		t.Fatalf("want at least 1 audit entry (login_failed), got %v", resp["entries"])
+	}
+	found := false
+	for _, e := range entries {
+		entry, _ := e.(map[string]any)
+		if entry["action"] == "login_failed" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("want a login_failed entry, got %v", entries)
 	}
 }
 

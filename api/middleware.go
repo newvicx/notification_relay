@@ -16,9 +16,10 @@ import (
 // LDAP, resolves the user's roles, and stores the authenticated User in the
 // request context for downstream handlers and middleware.
 //
-// Successful and failed login attempts are both written to the audit log.
-// Requests without an Authorization header are rejected with 401 but not
-// audited — no username is present to associate with an audit entry.
+// Failed login attempts are written to the audit log; successful ones are
+// not, to avoid flooding the audit log with routine activity. Requests
+// without an Authorization header are rejected with 401 but not audited —
+// no username is present to associate with an audit entry.
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		username, password, ok := r.BasicAuth()
@@ -45,8 +46,6 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 
 		roles := resolveRoles(result.Groups, s.roleConfig)
 		user := &User{Username: username, DN: result.UserDN, Roles: roles}
-
-		s.auditLog(r.Context(), username, ip, "login", "auth", "", "")
 
 		ctx := context.WithValue(r.Context(), ctxKey{}, user)
 		next.ServeHTTP(w, r.WithContext(ctx))
