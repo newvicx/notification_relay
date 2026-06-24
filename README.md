@@ -59,7 +59,7 @@ On startup the service will:
 1. Load and validate `config.yaml`
 2. Open the SQLite database (WAL mode, single writer + reader pool)
 3. Run any pending Goose migrations automatically
-4. Start background goroutines: LDAP group syncer, Twilio status poller, notification dispatcher
+4. Start background goroutines: LDAP group syncer, Twilio status poller, notification dispatcher, and (if `smtp_server.listen_addr` is set) the SMTP ingestion server
 5. Start the HTTP server
 
 Shutdown is graceful on `SIGINT` / `SIGTERM`.
@@ -296,16 +296,16 @@ Sync groups define which LDAP groups have their membership mirrored into the loc
    - Expands each group to its current members from the `group_members` table, creating one delivery record per member per channel.
    - Creates one delivery record for each direct `destinations` entry.
 4. Each delivery is dispatched to the appropriate provider:
-   - **SMS** — Twilio Messaging API using the member's `mobile_phone` or the destination phone number. The member/number must have an active SMS subscription; unsubscribed targets produce a `not_subscribed` delivery record and are skipped.
-   - **Voice** — Twilio Voice API using `mobile_phone`, falling back to `work_phone` (group members) or the destination number directly.
-   - **Email** — SMTP using the member's `email_address` or the destination address, rendering the specified template.
+   - **SMS** — Twilio Messaging API using the member's `mobile` number or the destination phone number. The member/number must have an active SMS subscription; unsubscribed targets produce a `not_subscribed` delivery record and are skipped.
+   - **Voice** — Twilio Voice API using `mobile`, falling back to `work` (group members) or the destination number directly.
+   - **Email** — SMTP using the member's `email` or the destination address, rendering the specified template.
 5. The notification is marked `completed` when all deliveries have been attempted, or `failed` if the job cannot be processed (e.g. no members resolve). `error_message` is populated on failure.
 6. Failed deliveries are retried up to `notify.retry_limit` times with exponential backoff (`retry_delay × 2^(attempt-1)`).
 7. Twilio delivery statuses are updated asynchronously by the background poller (`notify.poll_interval`).
 
 Members missing the required contact field for a channel (e.g. no email address) are skipped for that channel.
 
-**Time input formats:** `start_time` and `end_time` accept RFC3339, ISO-8601 (with or without the `T` separator), date-only (`2026-01-15`), `MM/DD/YYYY HH:MM AM/PM`, or Unix epoch seconds. Unrecognized formats return `400 Bad Request`. Values are normalized to RFC3339 before storage.
+**Time input formats:** `start_time` and `end_time` accept RFC3339, ISO-8601 (with or without the `T` separator), date-only (`2026-01-15`), `MM/DD/YYYY HH:MM:SS AM/PM`, or Unix epoch seconds. Unrecognized formats return `400 Bad Request`. Values are normalized to RFC3339 before storage.
 
 **Filtering events:** `GET /api/v1/events` accepts optional `start_from` and `start_to` query parameters (RFC3339) to filter by `start_time`.
 
@@ -315,7 +315,7 @@ Members missing the required contact field for a channel (e.g. no email address)
 
 ## Email Templates
 
-Email templates use Go's `text/template` syntax. Templates are managed via the API and stored in the database.
+Email templates use Go's `html/template` syntax. Templates are managed via the API and stored in the database.
 
 **Create a template:**
 
