@@ -411,11 +411,11 @@ components:
           type: string
           description: |
             Action performed. Well-known values:
-            `login`, `login_failed`, `create_event`, `update_event`, `end_event`,
+            `login_failed`, `smtp_login_failed`, `create_event`, `update_event`, `end_event`,
             `create_notification`,
             `create_template`, `update_template`, `delete_template`,
             `create_sync_group`, `delete_sync_group`,
-            `sms_subscribe`, `sms_subscribe_failed_invalid_credentials`,
+            `sms_subscribe`, `sms_subscribe_no_phone`, `sms_subscribe_failed_invalid_credentials`,
             `sms_unsubscribe`, `sms_unsubscribe_failed_invalid_credentials`,
             `sms_subscription_deleted`
         impacted_table:
@@ -1063,7 +1063,7 @@ paths:
   /api/v1/templates:
     post:
       summary: Create an email template
-      description: Registers a new email template. Returns `409 Conflict` if the name is already taken. The template syntax (Go `text/template`) is validated before saving.
+      description: Registers a new email template. Returns `409 Conflict` if the name is already taken. The template syntax (Go `html/template`) is validated before saving.
       operationId: createTemplate
       tags: [Templates]
       requestBody:
