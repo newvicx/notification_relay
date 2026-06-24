@@ -122,7 +122,7 @@ func runEventsCreate(cfg *Config, args []string) {
 
 	req := map[string]any{}
 	if *eventID != "" {
-		req["event_id"] = *name
+		req["event_id"] = *eventID
 	}
 	if *name != "" {
 		req["event_name"] = *name
