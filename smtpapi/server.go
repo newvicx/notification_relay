@@ -69,14 +69,14 @@ func NewSMTPServer(
 }
 
 // Start begins accepting SMTP connections. It blocks until the server closes.
+// When TLSCertFile and TLSKeyFile are set, the listener requires TLS from the
+// first byte (implicit TLS); otherwise it accepts plaintext connections.
 func (s *SMTPServer) Start() error {
 	s.logger.Info("smtp server listening", "addr", s.cfg.ListenAddr)
-	if s.cfg.TLSCertFile != "" && s.cfg.TLSKeyFile != "" {
+	if s.srv.TLSConfig != nil {
 		return s.srv.ListenAndServeTLS()
-	} else {
-		return s.srv.ListenAndServe()
 	}
-
+	return s.srv.ListenAndServe()
 }
 
 // Shutdown gracefully stops the server, waiting for in-flight sessions to

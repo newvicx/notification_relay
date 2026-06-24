@@ -122,7 +122,9 @@ type SMTPServerConfig struct {
 	Domain string `yaml:"domain"`
 	// MaxMessageBytes caps the size of inbound messages. Default: 1 MB.
 	MaxMessageBytes int64 `yaml:"max_message_bytes"`
-	// TLSCertFile and TLSKeyFile enable STARTTLS when both are set.
+	// TLSCertFile and TLSKeyFile enable implicit TLS when both are set: the
+	// listener requires a TLS handshake from the first byte of the
+	// connection. Without both set, the server accepts plaintext only.
 	TLSCertFile string `yaml:"tls_cert_file"`
 	TLSKeyFile  string `yaml:"tls_key_file"`
 }
