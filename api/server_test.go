@@ -77,7 +77,15 @@ func newTestServer(t *testing.T, auth ldap.Authenticator) (*api.Server, func()) 
 	queue := make(chan notify.Job, 16)
 	logger := noopLogger()
 	srv := api.NewServer(config.HTTPConfig{}, q, queue, logger, auth, okGroupVerifier(), &stubUserLookup{}, testRoleConfig, []string{"test"})
+	shutdownOnCleanup(t, srv)
 	return srv, func() {}
+}
+
+// shutdownOnCleanup stops the server's background goroutines (notably the
+// UI session sweeper) when the test finishes, so tests don't leak goroutines.
+func shutdownOnCleanup(t *testing.T, srv *api.Server) {
+	t.Helper()
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 }
 
 func do(srv *api.Server, method, path string, body []byte) *httptest.ResponseRecorder {

@@ -53,6 +53,8 @@ func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, lo
 		uiPages:         uiPages,
 		uiFragments:     uiFragments,
 	}
+	// sweepExpired runs until uiCtx is cancelled, which Shutdown does via
+	// s.uiCancel(); main.go calls Shutdown on SIGINT/SIGTERM.
 	go s.uiSessions.sweepExpired(uiCtx)
 	mux := http.NewServeMux()
 	if fileExists(cfg.SpecPath) {
