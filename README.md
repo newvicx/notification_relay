@@ -424,15 +424,18 @@ The server requires implicit TLS (the client must begin the TLS handshake immedi
 ### Example (curl as SMTP client)
 
 ```bash
-curl smtp://relay.example.com:2525 \
+curl smtps://relay.example.com:2525 \
   --mail-from "alerts@relay.local" \
   --mail-rcpt "grp-oncall+sms+voice@relay.local" \
+  --user "alerts:${SMTP_PASSWORD}" \
   --upload-file - <<'EOF'
 Subject: Disk alert
 
 Disk usage above 90% on web-01.
 EOF
 ```
+
+Use `smtp://` instead if `smtp_server.tls_cert_file`/`tls_key_file` are unset (plaintext mode).
 
 ---
 
