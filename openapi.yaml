@@ -1212,7 +1212,7 @@ paths:
           description: Internal server error
 
     post:
-      summary: Subscribe a user (admin)
+      summary: Subscribe a user
       description: |
         Looks up the user's mobile number in LDAP and adds them to the SMS
         subscription list. Returns the existing subscription if the user is
@@ -1313,7 +1313,7 @@ paths:
       - $ref: "#/components/parameters/subscription_username"
 
     delete:
-      summary: Remove a subscription (admin)
+      summary: Remove a subscription
       description: Removes any user's SMS subscription. Requires admin role.
       operationId: adminDeleteSubscription
       tags: [SMS Subscriptions]
