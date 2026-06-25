@@ -232,6 +232,7 @@ func (sess *session) Data(r io.Reader) error {
 	}
 	sess.writeAuditLog(ctx, "create_event", "events", "", marshalJSON(event))
 
+	emailVars := fmt.Sprintf(`{"subject": "%s"}`, eventName)
 	// One notification per recipient: each targets a single group with the
 	// channels encoded for that group.
 	for _, rcpt := range resolved {
@@ -253,7 +254,7 @@ func (sess *session) Data(r io.Reader) error {
 			Message:        message,
 			MemberCount:    0,
 			EmailTemplate:  sql.NullString{String: "default", Valid: true},
-			EmailVars:      sql.NullString{},
+			EmailVars:      sql.NullString{String: emailVars, Valid: true},
 			CreatedAt:      now,
 			CreatedBy:      nullString(sess.username),
 			Status:         "pending",
