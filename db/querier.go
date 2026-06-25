@@ -21,7 +21,7 @@ type Querier interface {
 	GetNotificationByID(ctx context.Context, id int64) (Notification, error)
 	GetNotificationByNotificationID(ctx context.Context, notificationID string) (Notification, error)
 	// sms_subscriptions
-	GetSMSSubscription(ctx context.Context, username string) (SmsSubscription, error)
+	GetSMSSubscription(ctx context.Context, lower string) (SmsSubscription, error)
 	GetSMSSubscriptionByPhone(ctx context.Context, phone string) (SmsSubscription, error)
 	GetSyncGroup(ctx context.Context, groupName string) (SyncGroup, error)
 	IncrementDeliveryAttempt(ctx context.Context, arg IncrementDeliveryAttemptParams) error

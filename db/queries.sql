@@ -196,7 +196,7 @@ LIMIT :limit OFFSET :offset;
 -- sms_subscriptions
 
 -- name: GetSMSSubscription :one
-SELECT * FROM sms_subscriptions WHERE username = ?;
+SELECT * FROM sms_subscriptions WHERE LOWER(username) = LOWER(?);
 
 -- name: GetSMSSubscriptionByPhone :one
 SELECT * FROM sms_subscriptions WHERE phone = ?;

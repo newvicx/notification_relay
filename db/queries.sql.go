@@ -218,12 +218,12 @@ func (q *Queries) GetNotificationByNotificationID(ctx context.Context, notificat
 
 const getSMSSubscription = `-- name: GetSMSSubscription :one
 
-SELECT username, phone, subscribed_at FROM sms_subscriptions WHERE username = ?
+SELECT username, phone, subscribed_at FROM sms_subscriptions WHERE LOWER(username) = LOWER(?)
 `
 
 // sms_subscriptions
-func (q *Queries) GetSMSSubscription(ctx context.Context, username string) (SmsSubscription, error) {
-	row := q.db.QueryRowContext(ctx, getSMSSubscription, username)
+func (q *Queries) GetSMSSubscription(ctx context.Context, lower string) (SmsSubscription, error) {
+	row := q.db.QueryRowContext(ctx, getSMSSubscription, lower)
 	var i SmsSubscription
 	err := row.Scan(&i.Username, &i.Phone, &i.SubscribedAt)
 	return i, err
