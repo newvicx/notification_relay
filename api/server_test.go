@@ -240,6 +240,109 @@ func TestListEvents_Pagination(t *testing.T) {
 	}
 }
 
+func TestListEvents_Filters(t *testing.T) {
+	srv, _ := newTestServer(t, publisherAuth())
+
+	create := func(id, name, description, severity, status string) {
+		body, _ := json.Marshal(map[string]any{
+			"event_id":          id,
+			"event_name":        name,
+			"event_description": description,
+			"event_severity":    severity,
+			"start_time":        time.Now().UTC().Format(time.RFC3339),
+		})
+		w := do(srv, "POST", "/api/v1/events", body)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("create %s: want 201, got %d: %s", id, w.Code, w.Body)
+		}
+		if status == "ended" {
+			w := do(srv, "POST", "/api/v1/events/"+id+"/end", nil)
+			if w.Code != http.StatusOK {
+				t.Fatalf("end %s: want 200, got %d: %s", id, w.Code, w.Body)
+			}
+		}
+	}
+
+	create("EVT-DISK", "Disk usage high", "disk nearly full on host1", "test", "active")
+	create("EVT-NET", "Network blip", "transient packet loss", "", "ended")
+
+	cases := []struct {
+		name      string
+		query     string
+		wantCode  int
+		wantCount int
+	}{
+		{"event_name substring", "event_name=disk", http.StatusOK, 1},
+		{"event_name case-insensitive", "event_name=DISK", http.StatusOK, 1},
+		{"description substring", "description=packet", http.StatusOK, 1},
+		{"severity exact match", "severity=test", http.StatusOK, 1},
+		{"severity invalid", "severity=bogus", http.StatusBadRequest, 0},
+		{"status active", "status=active", http.StatusOK, 1},
+		{"status ended", "status=ended", http.StatusOK, 1},
+		{"status invalid", "status=bogus", http.StatusBadRequest, 0},
+		{"event_id substring", "event_id=net", http.StatusOK, 1},
+		{"no match", "event_name=nonexistent", http.StatusOK, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := do(srv, "GET", "/api/v1/events?"+tc.query, nil)
+			if w.Code != tc.wantCode {
+				t.Fatalf("want %d, got %d: %s", tc.wantCode, w.Code, w.Body)
+			}
+			if tc.wantCode != http.StatusOK {
+				return
+			}
+			var resp struct {
+				Events []map[string]any `json:"events"`
+			}
+			json.NewDecoder(w.Body).Decode(&resp)
+			if len(resp.Events) != tc.wantCount {
+				t.Errorf("want %d events, got %d", tc.wantCount, len(resp.Events))
+			}
+		})
+	}
+}
+
+func TestUIListEvents_FiltersRendered(t *testing.T) {
+	srv, _ := newTestServer(t, publisherAuth())
+
+	loginBody := "username=pub&password=pass"
+	req := httptest.NewRequest("POST", "/ui/login", bytes.NewReader([]byte(loginBody)))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("login: want 303, got %d: %s", w.Code, w.Body)
+	}
+	var sessionCookie *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		sessionCookie = c
+	}
+	if sessionCookie == nil {
+		t.Fatal("login: no session cookie set")
+	}
+
+	req = httptest.NewRequest("GET", "/ui/events?event_name=disk&severity=test&status=active&created_by=jdoe", nil)
+	req.AddCookie(sessionCookie)
+	w = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+
+	body := w.Body.String()
+	for _, want := range []string{
+		`value="disk"`,
+		`value="jdoe"`,
+		`<option value="test" selected>test</option>`,
+		`<option value="active" selected>Active</option>`,
+	} {
+		if !bytes.Contains([]byte(body), []byte(want)) {
+			t.Errorf("response body missing %q\nbody:\n%s", want, body)
+		}
+	}
+}
+
 func TestGetEvent(t *testing.T) {
 	srv, _ := newTestServer(t, publisherAuth())
 

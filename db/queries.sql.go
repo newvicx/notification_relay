@@ -868,21 +868,39 @@ const listEventsFiltered = `-- name: ListEventsFiltered :many
 SELECT id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at, modified_by, modified_at FROM events
 WHERE (?1 = '' OR start_time >= ?1)
   AND (?2 = '' OR start_time <= ?2)
+  AND (?3 = '' OR LOWER(event_id) LIKE '%' || LOWER(?3) || '%')
+  AND (?4 = '' OR LOWER(event_name) LIKE '%' || LOWER(?4) || '%')
+  AND (?5 = '' OR LOWER(event_description) LIKE '%' || LOWER(?5) || '%')
+  AND (?6 = '' OR event_severity = ?6)
+  AND (?7 = '' OR LOWER(created_by) LIKE '%' || LOWER(?7) || '%')
+  AND (?8 = '' OR (?8 = 'active' AND end_time IS NULL) OR (?8 = 'ended' AND end_time IS NOT NULL))
 ORDER BY start_time DESC
-LIMIT ?4 OFFSET ?3
+LIMIT ?10 OFFSET ?9
 `
 
 type ListEventsFilteredParams struct {
-	StartFrom interface{} `json:"start_from"`
-	StartTo   interface{} `json:"start_to"`
-	Offset    int64       `json:"offset"`
-	Limit     int64       `json:"limit"`
+	StartFrom   interface{} `json:"start_from"`
+	StartTo     interface{} `json:"start_to"`
+	EventID     interface{} `json:"event_id"`
+	EventName   interface{} `json:"event_name"`
+	Description interface{} `json:"description"`
+	Severity    interface{} `json:"severity"`
+	CreatedBy   interface{} `json:"created_by"`
+	Status      interface{} `json:"status"`
+	Offset      int64       `json:"offset"`
+	Limit       int64       `json:"limit"`
 }
 
 func (q *Queries) ListEventsFiltered(ctx context.Context, arg ListEventsFilteredParams) ([]Event, error) {
 	rows, err := q.db.QueryContext(ctx, listEventsFiltered,
 		arg.StartFrom,
 		arg.StartTo,
+		arg.EventID,
+		arg.EventName,
+		arg.Description,
+		arg.Severity,
+		arg.CreatedBy,
+		arg.Status,
 		arg.Offset,
 		arg.Limit,
 	)

@@ -16,13 +16,20 @@ type uiEventRow struct {
 }
 
 type uiEventsListData struct {
-	Events    []uiEventRow
-	Offset    int64
-	HasNext   bool
-	StartFrom string
-	StartTo   string
-	PrevQuery string
-	NextQuery string
+	Events          []uiEventRow
+	Offset          int64
+	HasNext         bool
+	StartFrom       string
+	StartTo         string
+	EventID         string
+	EventName       string
+	Description     string
+	Severity        string
+	CreatedBy       string
+	Status          string
+	SeverityOptions []string
+	PrevQuery       string
+	NextQuery       string
 }
 
 func (s *Server) handleUIListEvents(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +63,7 @@ func (s *Server) handleUIListEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	prevQuery := url.Values{"offset": {strconv.FormatInt(prevOffset, 10)}, "limit": {strconv.FormatInt(limit, 10)}}
 	nextQuery := url.Values{"offset": {strconv.FormatInt(offset+limit, 10)}, "limit": {strconv.FormatInt(limit, 10)}}
-	for _, k := range []string{"start_from", "start_to"} {
+	for _, k := range []string{"start_from", "start_to", "event_id", "event_name", "description", "severity", "created_by", "status"} {
 		if v := q.Get(k); v != "" {
 			prevQuery.Set(k, v)
 			nextQuery.Set(k, v)
@@ -66,13 +73,20 @@ func (s *Server) handleUIListEvents(w http.ResponseWriter, r *http.Request) {
 	s.renderUIPage(w, "events_list.html", uiPageData{
 		Title: "Events", User: user, IsAdmin: isAdminUser(user),
 		Data: uiEventsListData{
-			Events:    rows,
-			Offset:    offset,
-			HasNext:   int64(len(events)) == limit,
-			StartFrom: q.Get("start_from"),
-			StartTo:   q.Get("start_to"),
-			PrevQuery: prevQuery.Encode(),
-			NextQuery: nextQuery.Encode(),
+			Events:          rows,
+			Offset:          offset,
+			HasNext:         int64(len(events)) == limit,
+			StartFrom:       q.Get("start_from"),
+			StartTo:         q.Get("start_to"),
+			EventID:         q.Get("event_id"),
+			EventName:       q.Get("event_name"),
+			Description:     q.Get("description"),
+			Severity:        q.Get("severity"),
+			CreatedBy:       q.Get("created_by"),
+			Status:          q.Get("status"),
+			SeverityOptions: s.eventSeverities,
+			PrevQuery:       prevQuery.Encode(),
+			NextQuery:       nextQuery.Encode(),
 		},
 	})
 }
