@@ -9,6 +9,39 @@
     <label for="start_to">Start to</label>
     <input type="datetime-local" id="start_to" name="start_to" value="{{.Data.StartTo}}">
   </div>
+  <div>
+    <label for="event_id">Event ID</label>
+    <input type="text" id="event_id" name="event_id" value="{{.Data.EventID}}">
+  </div>
+  <div>
+    <label for="event_name">Name</label>
+    <input type="text" id="event_name" name="event_name" value="{{.Data.EventName}}">
+  </div>
+  <div>
+    <label for="description">Description</label>
+    <input type="text" id="description" name="description" value="{{.Data.Description}}">
+  </div>
+  <div>
+    <label for="severity">Severity</label>
+    <select id="severity" name="severity">
+      <option value="">Any</option>
+      {{range .Data.SeverityOptions}}
+      <option value="{{.}}" {{if eq . $.Data.Severity}}selected{{end}}>{{.}}</option>
+      {{end}}
+    </select>
+  </div>
+  <div>
+    <label for="created_by">Created by</label>
+    <input type="text" id="created_by" name="created_by" value="{{.Data.CreatedBy}}">
+  </div>
+  <div>
+    <label for="status">Status</label>
+    <select id="status" name="status">
+      <option value="" {{if eq .Data.Status ""}}selected{{end}}>Any</option>
+      <option value="active" {{if eq .Data.Status "active"}}selected{{end}}>Active</option>
+      <option value="ended" {{if eq .Data.Status "ended"}}selected{{end}}>Ended</option>
+    </select>
+  </div>
   <button type="submit">Filter</button>
   <a class="button-link" href="/ui/events">Clear</a>
 </form>

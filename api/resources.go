@@ -319,7 +319,10 @@ func (s *Server) handleUpdateEvent(w http.ResponseWriter, r *http.Request) {
 // listEventsCore returns a paginated list of events ordered by start_time DESC.
 // Query params: limit (default 50, max 200), offset (default 0),
 // start_from (RFC3339, inclusive lower bound on start_time),
-// start_to (RFC3339, inclusive upper bound on start_time).
+// start_to (RFC3339, inclusive upper bound on start_time),
+// event_id, event_name, description, created_by (case-insensitive substring match),
+// severity (exact match against configured severities),
+// status (active = no end_time, ended = end_time set).
 // Shared by the JSON API and the UI events list page.
 func (s *Server) listEventsCore(r *http.Request) ([]db.Event, int64, int64, error) {
 	limit := int64(50)
@@ -358,11 +361,43 @@ func (s *Server) listEventsCore(r *http.Request) ([]db.Event, int64, int64, erro
 		startTo = normalized
 	}
 
+	eventID := r.URL.Query().Get("event_id")
+	eventName := r.URL.Query().Get("event_name")
+	description := r.URL.Query().Get("description")
+	createdBy := r.URL.Query().Get("created_by")
+
+	severity := r.URL.Query().Get("severity")
+	if severity != "" {
+		validSeverity := false
+		for _, sev := range s.eventSeverities {
+			if strings.ToLower(sev) == strings.ToLower(severity) {
+				severity = sev
+				validSeverity = true
+				break
+			}
+		}
+		if !validSeverity {
+			valid := strings.Join(s.eventSeverities, ",")
+			return nil, 0, 0, newCoreError(http.StatusBadRequest, fmt.Sprintf("unknown severity %q; valid values: %s", severity, valid))
+		}
+	}
+
+	status := r.URL.Query().Get("status")
+	if status != "" && status != "active" && status != "ended" {
+		return nil, 0, 0, newCoreError(http.StatusBadRequest, "status must be 'active' or 'ended'")
+	}
+
 	events, err := s.q.ListEventsFiltered(r.Context(), db.ListEventsFilteredParams{
-		StartFrom: startFrom,
-		StartTo:   startTo,
-		Limit:     limit,
-		Offset:    offset,
+		StartFrom:   startFrom,
+		StartTo:     startTo,
+		EventID:     eventID,
+		EventName:   eventName,
+		Description: description,
+		Severity:    severity,
+		CreatedBy:   createdBy,
+		Status:      status,
+		Limit:       limit,
+		Offset:      offset,
 	})
 	if err != nil {
 		s.logger.Error("list events failed", "error", err)

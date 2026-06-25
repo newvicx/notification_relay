@@ -53,6 +53,12 @@ SELECT * FROM events ORDER BY start_time DESC LIMIT ? OFFSET ?;
 SELECT * FROM events
 WHERE (:start_from = '' OR start_time >= :start_from)
   AND (:start_to = '' OR start_time <= :start_to)
+  AND (:event_id = '' OR LOWER(event_id) LIKE '%' || LOWER(:event_id) || '%')
+  AND (:event_name = '' OR LOWER(event_name) LIKE '%' || LOWER(:event_name) || '%')
+  AND (:description = '' OR LOWER(event_description) LIKE '%' || LOWER(:description) || '%')
+  AND (:severity = '' OR event_severity = :severity)
+  AND (:created_by = '' OR LOWER(created_by) LIKE '%' || LOWER(:created_by) || '%')
+  AND (:status = '' OR (:status = 'active' AND end_time IS NULL) OR (:status = 'ended' AND end_time IS NOT NULL))
 ORDER BY start_time DESC
 LIMIT :limit OFFSET :offset;
 
