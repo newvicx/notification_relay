@@ -354,6 +354,7 @@ func parseTimeToRFC3339(s string) (string, error) {
 		time.RFC3339Nano,
 		time.RFC3339,
 		"2006-01-02T15:04:05",
+		"2006-01-02T15:04", // value format emitted by <input type="datetime-local">
 		"2006-01-02 15:04:05",
 		"2006-01-02",
 		"01/02/2006 03:04:05 PM",
