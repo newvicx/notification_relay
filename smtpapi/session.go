@@ -37,57 +37,67 @@ type session struct {
 	recipients []parsedRecipient
 }
 
-// AuthMechanisms advertises support for PLAIN only.
+// AuthMechanisms advertises support for PLAIN and LOGIN.
 func (sess *session) AuthMechanisms() []string {
-	return []string{sasl.Plain}
+	return []string{sasl.Plain, sasl.Login}
 }
 
-// Auth handles the SASL exchange. Only PLAIN is supported.
+// Auth handles the SASL exchange. PLAIN and LOGIN are supported; both
+// ultimately authenticate against the same LDAP-backed callback.
 func (sess *session) Auth(mech string) (sasl.Server, error) {
-	if mech != sasl.Plain {
+	switch mech {
+	case sasl.Plain:
+		return sasl.NewPlainServer(func(identity, username, password string) error {
+			return sess.authenticate(username, password)
+		}), nil
+	case sasl.Login:
+		return newLoginServer(sess.authenticate), nil
+	default:
 		return nil, &gosmtp.SMTPError{
 			Code:         504,
 			EnhancedCode: gosmtp.EnhancedCode{5, 7, 4},
 			Message:      "Unsupported authentication mechanism",
 		}
 	}
-	return sasl.NewPlainServer(func(identity, username, password string) error {
-		ctx := context.Background()
-		result, err := sess.s.auth.AuthenticateUser(ctx, username, password)
-		if err != nil {
-			if err == ldap.ErrInvalidCredentials {
-				sess.writeAuditLogAs(ctx, username, "smtp_login_failed", "", "", "")
-				return &gosmtp.SMTPError{
-					Code:         535,
-					EnhancedCode: gosmtp.EnhancedCode{5, 7, 8},
-					Message:      "Authentication credentials invalid",
-				}
-			}
-			sess.s.logger.Error("smtp auth: ldap error", "username", username, "error", err)
+}
+
+// authenticate verifies credentials against LDAP, checks publish permission,
+// and marks the session authenticated on success. Shared by every SASL
+// mechanism's server implementation.
+func (sess *session) authenticate(username, password string) error {
+	ctx := context.Background()
+	result, err := sess.s.auth.AuthenticateUser(ctx, username, password)
+	if err != nil {
+		if err == ldap.ErrInvalidCredentials {
 			sess.writeAuditLogAs(ctx, username, "smtp_login_failed", "", "", "")
 			return &gosmtp.SMTPError{
-				Code:         451,
-				EnhancedCode: gosmtp.EnhancedCode{4, 7, 0},
-				Message:      "Temporary authentication failure",
+				Code:         535,
+				EnhancedCode: gosmtp.EnhancedCode{5, 7, 8},
+				Message:      "Authentication credentials invalid",
 			}
 		}
-
-		roles := resolveRoles(result.Groups, sess.s.roleConfig)
-		if !hasPermission(roles, permPublish) {
-			sess.writeAuditLogAs(ctx, username, "smtp_unauthorized", "", "", "")
-			return &gosmtp.SMTPError{
-				Code:         550,
-				EnhancedCode: gosmtp.EnhancedCode{5, 7, 1},
-				Message:      "Not authorized to publish notifications",
-			}
+		sess.s.logger.Error("smtp auth: ldap error", "username", username, "error", err)
+		sess.writeAuditLogAs(ctx, username, "smtp_login_failed", "", "", "")
+		return &gosmtp.SMTPError{
+			Code:         451,
+			EnhancedCode: gosmtp.EnhancedCode{4, 7, 0},
+			Message:      "Temporary authentication failure",
 		}
+	}
 
-		sess.username = username
-		sess.authed = true
+	roles := resolveRoles(result.Groups, sess.s.roleConfig)
+	if !hasPermission(roles, permPublish) {
+		sess.writeAuditLogAs(ctx, username, "smtp_unauthorized", "", "", "")
+		return &gosmtp.SMTPError{
+			Code:         550,
+			EnhancedCode: gosmtp.EnhancedCode{5, 7, 1},
+			Message:      "Not authorized to publish notifications",
+		}
+	}
 
-		// sess.writeAuditLog(ctx, "smtp_login", "", "", "")
-		return nil
-	}), nil
+	sess.username = username
+	sess.authed = true
+	return nil
 }
 
 // Mail accepts the MAIL FROM command. The envelope sender is ignored —
