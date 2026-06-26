@@ -53,9 +53,9 @@ func NewSMTPServer(
 	srv.Addr = cfg.ListenAddr
 	srv.Domain = cfg.Domain
 	srv.MaxMessageBytes = cfg.MaxMessageBytes
-	srv.AllowInsecureAuth = cfg.TLSCertFile == ""
+	srv.AllowInsecureAuth = cfg.TLSMode == "" || cfg.TLSMode == "none"
 
-	if cfg.TLSCertFile != "" && cfg.TLSKeyFile != "" {
+	if cfg.TLSMode == "starttls" || cfg.TLSMode == "tls" {
 		cert, err := tls.LoadX509KeyPair(cfg.TLSCertFile, cfg.TLSKeyFile)
 		if err != nil {
 			logger.Error("smtp server: failed to load TLS cert", "error", err)
@@ -69,11 +69,13 @@ func NewSMTPServer(
 }
 
 // Start begins accepting SMTP connections. It blocks until the server closes.
-// When TLSCertFile and TLSKeyFile are set, the listener requires TLS from the
-// first byte (implicit TLS); otherwise it accepts plaintext connections.
+// In "tls" mode the listener requires a TLS handshake from the first byte
+// (implicit TLS, like SMTPS). In "starttls" mode it accepts plaintext
+// connections and upgrades them via the STARTTLS command. In "none" mode it
+// only ever accepts plaintext connections.
 func (s *SMTPServer) Start() error {
-	s.logger.Info("smtp server listening", "addr", s.cfg.ListenAddr)
-	if s.srv.TLSConfig != nil {
+	s.logger.Info("smtp server listening", "addr", s.cfg.ListenAddr, "tls_mode", s.cfg.TLSMode)
+	if s.cfg.TLSMode == "tls" {
 		return s.srv.ListenAndServeTLS()
 	}
 	return s.srv.ListenAndServe()

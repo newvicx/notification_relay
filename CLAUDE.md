@@ -58,7 +58,7 @@ sql/                     # Schema and SQLc query definitions
 
 **Twilio status**: Polled periodically (default 30s) as a webhook fallback due to firewall restrictions (`notify/poller.go`).
 
-**SMTP ingestion** (`smtpapi/`): an inbound SMTP server that converts received email into notification relay jobs, so alerting tools that only know how to send email can target on-call groups. Each `RCPT TO` local part encodes a group and its delivery channels (`group+sms+voice`); Subject becomes the event name and the body the message. Auth is SASL PLAIN verified against LDAP (publisher/admin roles only). Supports implicit TLS (like SMTPS) when `smtp_server.tls_cert_file`/`tls_key_file` are set — STARTTLS is not supported.
+**SMTP ingestion** (`smtpapi/`): an inbound SMTP server that converts received email into notification relay jobs, so alerting tools that only know how to send email can target on-call groups. Each `RCPT TO` local part encodes a group and its delivery channels (`group+sms+voice`); Subject becomes the event name and the body the message. Auth is SASL PLAIN or LOGIN verified against LDAP (publisher/admin roles only). `smtp_server.tls_mode` selects `none` (plaintext), `starttls` (plaintext listener, upgraded via STARTTLS), or `tls` (implicit TLS, like SMTPS); `starttls`/`tls` require `tls_cert_file`/`tls_key_file`.
 
 **SMS self-service subscription** (`api/subscribe.go`): a small HTML form (no auth) where users can register/unregister their phone number for SMS alerts to a group, independent of LDAP group membership.
 
@@ -101,7 +101,8 @@ smtp:
 smtp_server:                  # inbound SMTP ingestion; unset listen_addr disables it
   listen_addr: ":2525"
   domain: relay.local
-  tls_cert_file: "/path/to/cert.pem"   # both set -> implicit TLS (no STARTTLS)
+  tls_mode: none                # none | starttls | tls; cert/key required for starttls and tls
+  tls_cert_file: "/path/to/cert.pem"
   tls_key_file: "/path/to/key.pem"
 
 notify:

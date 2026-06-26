@@ -122,9 +122,11 @@ type SMTPServerConfig struct {
 	Domain string `yaml:"domain"`
 	// MaxMessageBytes caps the size of inbound messages. Default: 1 MB.
 	MaxMessageBytes int64 `yaml:"max_message_bytes"`
-	// TLSCertFile and TLSKeyFile enable implicit TLS when both are set: the
-	// listener requires a TLS handshake from the first byte of the
-	// connection. Without both set, the server accepts plaintext only.
+	// TLSMode controls how the inbound SMTP connection is secured:
+	//   "none"     — plaintext only (default)
+	//   "starttls" — accept plaintext connections, upgrade via STARTTLS
+	//   "tls"      — require TLS from the first byte (implicit TLS, like SMTPS)
+	TLSMode     string `yaml:"tls_mode"`
 	TLSCertFile string `yaml:"tls_cert_file"`
 	TLSKeyFile  string `yaml:"tls_key_file"`
 }
@@ -214,6 +216,7 @@ func defaults() *Config {
 		},
 		SMTPServer: SMTPServerConfig{
 			MaxMessageBytes: 1 << 20, // 1 MB
+			TLSMode:         "none",
 		},
 		Notify: NotifyConfig{
 			WorkerCount:         4,
@@ -253,6 +256,16 @@ func validate(cfg *Config) error {
 	}
 	if cfg.SMTPServer.ListenAddr != "" && cfg.SMTPServer.Domain == "" {
 		return fmt.Errorf("smtp_server.domain is required when smtp_server.listen_addr is set")
+	}
+	switch cfg.SMTPServer.TLSMode {
+	case "none", "starttls", "tls", "":
+	default:
+		return fmt.Errorf("smtp_server.tls_mode must be one of: none, starttls, tls (got %q)", cfg.SMTPServer.TLSMode)
+	}
+	if cfg.SMTPServer.TLSMode == "starttls" || cfg.SMTPServer.TLSMode == "tls" {
+		if cfg.SMTPServer.TLSCertFile == "" || cfg.SMTPServer.TLSKeyFile == "" {
+			return fmt.Errorf("smtp_server.tls_cert_file and smtp_server.tls_key_file are required when smtp_server.tls_mode is %q", cfg.SMTPServer.TLSMode)
+		}
 	}
 	knownRoles := map[string]bool{"admin": true, "publisher": true, "reader": true}
 	for name := range cfg.LDAP.Roles {
