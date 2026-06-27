@@ -58,7 +58,9 @@ sql/                     # Schema and SQLc query definitions
 
 **Twilio status**: Polled periodically (default 30s) as a webhook fallback due to firewall restrictions (`notify/poller.go`).
 
-**SMTP ingestion** (`smtpapi/`): an inbound SMTP server that converts received email into notification relay jobs, so alerting tools that only know how to send email can target on-call groups. Each `RCPT TO` local part encodes a group and its delivery channels (`group+sms+voice`); Subject becomes the event name and the body the message. Auth is SASL PLAIN or LOGIN verified against LDAP (publisher/admin roles only). `smtp_server.tls_mode` selects `none` (plaintext), `starttls` (plaintext listener, upgraded via STARTTLS), or `tls` (implicit TLS, like SMTPS); `starttls`/`tls` require `tls_cert_file`/`tls_key_file`.
+**SMTP ingestion** (`smtpapi/`): an inbound SMTP server that converts received email into notification relay jobs, so alerting tools that only know how to send email can target on-call groups. Each `RCPT TO` local part encodes a group and its delivery channels (`group+sms+voice`); Subject becomes the event name and the body the message. Auth is SASL PLAIN, LOGIN, or (opt-in) CRAM-MD5; PLAIN/LOGIN verify against LDAP, CRAM-MD5 verifies against a separate non-LDAP credential store (publisher/admin roles only either way). `smtp_server.tls_mode` selects `none` (plaintext), `starttls` (plaintext listener, upgraded via STARTTLS), or `tls` (implicit TLS, like SMTPS); `starttls`/`tls` require `tls_cert_file`/`tls_key_file`.
+
+**SMTP CRAM-MD5 auth** (`smtpapi/cram*.go`, `api/cram_credentials.go`): CRAM-MD5 requires the server to hold the plaintext shared secret to compute HMAC-MD5 itself, which an LDAP bind never exposes — so it's backed by its own `smtp_cram_credentials` table instead of LDAP. Secrets are encrypted at rest with AES-256-GCM (`smtpapi.EncryptSecret`/`DecryptSecret`) under a server-held key (`smtp_server.cram_md5_secret_key`, base64-encoded 32 bytes) and decrypted only at auth time. Roles live directly on the credential row (no LDAP group indirection). Managed via admin-only `/api/v1/smtp/cram-credentials` endpoints and `nrcli smtp-cram add|list|remove`; `add` returns the generated secret exactly once.
 
 **SMS self-service subscription** (`api/subscribe.go`): a small HTML form (no auth) where users can register/unregister their phone number for SMS alerts to a group, independent of LDAP group membership.
 
@@ -104,6 +106,8 @@ smtp_server:                  # inbound SMTP ingestion; unset listen_addr disabl
   tls_mode: none                # none | starttls | tls; cert/key required for starttls and tls
   tls_cert_file: "/path/to/cert.pem"
   tls_key_file: "/path/to/key.pem"
+  cram_md5_enabled: false       # opt-in CRAM-MD5 against a separate, non-LDAP credential store
+  cram_md5_secret_key: "${SMTP_CRAM_MD5_KEY}"   # base64-encoded 32-byte AES-256 key; required if enabled
 
 notify:
   worker_count: 4
@@ -132,6 +136,7 @@ Everything below is implemented and tested:
 - Twilio status polling (`notify/poller.go`)
 - Notification templating (`notify/template.go`, `api/templates.go`)
 - SMTP ingestion server (`smtpapi/`)
+- SMTP CRAM-MD5 auth against a separate non-LDAP credential store (`smtpapi/cram*.go`, `api/cram_credentials.go`)
 - SMS self-service subscribe/unsubscribe form (`api/subscribe.go`)
 - CLI (`cmd/nrcli`)
 

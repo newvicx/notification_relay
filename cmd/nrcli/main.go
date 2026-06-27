@@ -25,6 +25,7 @@ Commands:
   templates          Manage email templates
   audit              View audit log (admin only)
   subscriptions      Manage SMS subscriptions
+  smtp-cram          Manage SMTP CRAM-MD5 credentials (admin only)
 
 Run 'nrcli <command>' for subcommand help.
 
@@ -89,6 +90,8 @@ func main() {
 		runAudit(cfg, args[1:])
 	case "subscriptions":
 		runSubscriptions(cfg, args[1:])
+	case "smtp-cram":
+		runSMTPCram(cfg, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "error: unknown command %q\n\n", args[0])
 		fs.Usage()

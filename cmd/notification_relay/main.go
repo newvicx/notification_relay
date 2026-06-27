@@ -157,7 +157,7 @@ func main() {
 	)
 
 	// HTTP server
-	srv := api.NewServer(cfg.HTTP, writerQ, jobQueue, logger, ldapAuth, groupVerifier, userLookup, cfg.LDAP.Roles, cfg.Severities)
+	srv := api.NewServer(cfg.HTTP, writerQ, jobQueue, logger, ldapAuth, groupVerifier, userLookup, cfg.LDAP.Roles, cfg.Severities, cfg.SMTPServer)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"regexp"
@@ -129,6 +130,15 @@ type SMTPServerConfig struct {
 	TLSMode     string `yaml:"tls_mode"`
 	TLSCertFile string `yaml:"tls_cert_file"`
 	TLSKeyFile  string `yaml:"tls_key_file"`
+	// CRAMMD5Enabled turns on the SASL CRAM-MD5 mechanism, authenticated
+	// against a separate credential store (managed via the
+	// /api/v1/smtp/cram-credentials endpoints) rather than LDAP — CRAM-MD5
+	// requires the server to hold the plaintext shared secret, which an LDAP
+	// bind never exposes.
+	CRAMMD5Enabled bool `yaml:"cram_md5_enabled"`
+	// CRAMMD5SecretKey is a base64-encoded 32-byte AES-256 key used to encrypt
+	// CRAM-MD5 credential secrets at rest. Required when CRAMMD5Enabled is true.
+	CRAMMD5SecretKey string `yaml:"cram_md5_secret_key"`
 }
 
 type NotifyConfig struct {
@@ -265,6 +275,12 @@ func validate(cfg *Config) error {
 	if cfg.SMTPServer.TLSMode == "starttls" || cfg.SMTPServer.TLSMode == "tls" {
 		if cfg.SMTPServer.TLSCertFile == "" || cfg.SMTPServer.TLSKeyFile == "" {
 			return fmt.Errorf("smtp_server.tls_cert_file and smtp_server.tls_key_file are required when smtp_server.tls_mode is %q", cfg.SMTPServer.TLSMode)
+		}
+	}
+	if cfg.SMTPServer.CRAMMD5Enabled {
+		key, err := base64.StdEncoding.DecodeString(cfg.SMTPServer.CRAMMD5SecretKey)
+		if err != nil || len(key) != 32 {
+			return fmt.Errorf("smtp_server.cram_md5_secret_key must be a base64-encoded 32-byte key when smtp_server.cram_md5_enabled is true")
 		}
 	}
 	knownRoles := map[string]bool{"admin": true, "publisher": true, "reader": true}

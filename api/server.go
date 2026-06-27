@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"html/template"
 	"io/fs"
@@ -29,13 +30,14 @@ type Server struct {
 	userLookup      ldap.UserLookup
 	roleConfig      map[string][]string
 	eventSeverities []string
+	cramKey         []byte // AES-256 key for SMTP CRAM-MD5 credential secrets; nil if disabled
 	uiSessions      *uiSessionStore
 	uiCancel        context.CancelFunc
 	uiPages         map[string]*template.Template
 	uiFragments     map[string]*template.Template
 }
 
-func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, logger *slog.Logger, auth ldap.Authenticator, groupVerifier ldap.GroupVerifier, userLookup ldap.UserLookup, roleConfig map[string][]string, eventSeverities []string) *Server {
+func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, logger *slog.Logger, auth ldap.Authenticator, groupVerifier ldap.GroupVerifier, userLookup ldap.UserLookup, roleConfig map[string][]string, eventSeverities []string, smtpServerCfg config.SMTPServerConfig) *Server {
 	uiCtx, uiCancel := context.WithCancel(context.Background())
 	uiPages, uiFragments := mustLoadUITemplates()
 	s := &Server{
@@ -52,6 +54,15 @@ func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, lo
 		uiCancel:        uiCancel,
 		uiPages:         uiPages,
 		uiFragments:     uiFragments,
+	}
+	if smtpServerCfg.CRAMMD5Enabled {
+		key, err := base64.StdEncoding.DecodeString(smtpServerCfg.CRAMMD5SecretKey)
+		if err != nil {
+			// config.validate() already checked this; treat as a startup bug.
+			logger.Error("api server: invalid cram_md5_secret_key", "error", err)
+		} else {
+			s.cramKey = key
+		}
 	}
 	// sweepExpired runs until uiCtx is cancelled, which Shutdown does via
 	// s.uiCancel(); main.go calls Shutdown on SIGINT/SIGTERM.
@@ -117,6 +128,14 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleCreateSyncGroup))))
 	mux.Handle("DELETE /api/v1/groups/sync/{group_name}",
 		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleDeleteSyncGroup))))
+
+	// SMTP CRAM-MD5 credentials (admin-only; secret is returned once on create)
+	mux.Handle("GET /api/v1/smtp/cram-credentials",
+		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleListCRAMCredentials))))
+	mux.Handle("POST /api/v1/smtp/cram-credentials",
+		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleCreateCRAMCredential))))
+	mux.Handle("DELETE /api/v1/smtp/cram-credentials/{username}",
+		s.authenticate(s.requirePermissions(PermAdmin)(http.HandlerFunc(s.handleDeleteCRAMCredential))))
 
 	// Audit log (admin-only)
 	mux.Handle("GET /api/v1/audit",
