@@ -215,3 +215,18 @@ SELECT * FROM sms_subscriptions ORDER BY subscribed_at DESC;
 
 -- name: DeleteSMSSubscription :exec
 DELETE FROM sms_subscriptions WHERE username = ?;
+
+-- smtp_cram_credentials
+
+-- name: GetCRAMCredential :one
+SELECT * FROM smtp_cram_credentials WHERE username = ? AND enabled = 1;
+
+-- name: InsertCRAMCredential :exec
+INSERT INTO smtp_cram_credentials (username, secret_nonce, secret_cipher, roles, enabled, created_at)
+VALUES (?, ?, ?, ?, ?, ?);
+
+-- name: ListCRAMCredentials :many
+SELECT * FROM smtp_cram_credentials ORDER BY username;
+
+-- name: DeleteCRAMCredential :exec
+DELETE FROM smtp_cram_credentials WHERE username = ?;

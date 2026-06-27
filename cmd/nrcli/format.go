@@ -113,6 +113,22 @@ type SyncGroup struct {
 	CreatedBy string `json:"created_by"`
 }
 
+type CRAMCredential struct {
+	Username  string   `json:"username"`
+	Roles     []string `json:"roles"`
+	Enabled   bool     `json:"enabled"`
+	CreatedAt string   `json:"created_at"`
+}
+
+// CRAMCredentialCreated is the one-time response from creating a CRAM-MD5
+// credential; Secret is never returned again after this.
+type CRAMCredentialCreated struct {
+	Username  string   `json:"username"`
+	Roles     []string `json:"roles"`
+	CreatedAt string   `json:"created_at"`
+	Secret    string   `json:"secret"`
+}
+
 // EventSummary is the joined structure returned by `events summary`.
 type EventSummary struct {
 	Event         Event                        `json:"event"`
@@ -528,6 +544,35 @@ func printSyncGroupDetail(g SyncGroup) {
 	fmt.Fprintf(w, "Created By:\t%s\n", g.CreatedBy)
 	fmt.Fprintf(w, "Created At:\t%s\n", g.CreatedAt)
 	w.Flush()
+}
+
+// ── SMTP CRAM-MD5 credentials ──────────────────────────────────────────────────
+
+func printCRAMCredentialList(creds []CRAMCredential) {
+	if len(creds) == 0 {
+		fmt.Println("No SMTP CRAM-MD5 credentials configured.")
+		return
+	}
+	w := newTabWriter()
+	fmt.Fprintln(w, "USERNAME\tROLES\tENABLED\tCREATED AT")
+	for _, c := range creds {
+		fmt.Fprintf(w, "%s\t%s\t%t\t%s\n",
+			c.Username,
+			strings.Join(c.Roles, ","),
+			c.Enabled,
+			shortTime(c.CreatedAt),
+		)
+	}
+	w.Flush()
+}
+
+func printCRAMCredentialCreated(c CRAMCredentialCreated) {
+	w := newTabWriter()
+	fmt.Fprintf(w, "Username:\t%s\n", c.Username)
+	fmt.Fprintf(w, "Roles:\t%s\n", strings.Join(c.Roles, ","))
+	fmt.Fprintf(w, "Created At:\t%s\n", c.CreatedAt)
+	w.Flush()
+	fmt.Printf("\nSecret (shown only once, save it now):\n%s\n", c.Secret)
 }
 
 // ── SMS Subscriptions ─────────────────────────────────────────────────────────

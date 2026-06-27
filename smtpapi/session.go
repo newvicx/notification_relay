@@ -37,13 +37,20 @@ type session struct {
 	recipients []parsedRecipient
 }
 
-// AuthMechanisms advertises support for PLAIN and LOGIN.
+// AuthMechanisms advertises support for PLAIN and LOGIN, plus CRAM-MD5 when a
+// credential store is configured.
 func (sess *session) AuthMechanisms() []string {
-	return []string{sasl.Plain, sasl.Login}
+	mechs := []string{sasl.Plain, sasl.Login}
+	if sess.s.cramStore != nil {
+		mechs = append(mechs, "CRAM-MD5")
+	}
+	return mechs
 }
 
-// Auth handles the SASL exchange. PLAIN and LOGIN are supported; both
-// ultimately authenticate against the same LDAP-backed callback.
+// Auth handles the SASL exchange. PLAIN and LOGIN authenticate against LDAP;
+// CRAM-MD5 authenticates against the separate CRAM credential store, since
+// CRAM-MD5 requires the server to hold the plaintext shared secret, which an
+// LDAP bind never exposes.
 func (sess *session) Auth(mech string) (sasl.Server, error) {
 	switch mech {
 	case sasl.Plain:
@@ -52,6 +59,22 @@ func (sess *session) Auth(mech string) (sasl.Server, error) {
 		}), nil
 	case sasl.Login:
 		return newLoginServer(sess.authenticate), nil
+	case "CRAM-MD5":
+		if sess.s.cramStore == nil {
+			return nil, &gosmtp.SMTPError{
+				Code:         504,
+				EnhancedCode: gosmtp.EnhancedCode{5, 7, 4},
+				Message:      "Unsupported authentication mechanism",
+			}
+		}
+		return newCRAMServer(sess.s.cfg.Domain, sess.s.cramStore.lookup,
+			func(username string, roles []string) error {
+				return sess.finishAuth(context.Background(), username, roles)
+			},
+			func(username string) {
+				sess.writeAuditLogAs(context.Background(), username, "smtp_login_failed", "", "", "")
+			},
+		), nil
 	default:
 		return nil, &gosmtp.SMTPError{
 			Code:         504,
@@ -61,9 +84,8 @@ func (sess *session) Auth(mech string) (sasl.Server, error) {
 	}
 }
 
-// authenticate verifies credentials against LDAP, checks publish permission,
-// and marks the session authenticated on success. Shared by every SASL
-// mechanism's server implementation.
+// authenticate verifies credentials against LDAP and finishes authentication
+// on success. Shared by the PLAIN and LOGIN SASL mechanisms.
 func (sess *session) authenticate(username, password string) error {
 	ctx := context.Background()
 	result, err := sess.s.auth.AuthenticateUser(ctx, username, password)
@@ -86,6 +108,13 @@ func (sess *session) authenticate(username, password string) error {
 	}
 
 	roles := resolveRoles(result.Groups, sess.s.roleConfig)
+	return sess.finishAuth(ctx, username, roles)
+}
+
+// finishAuth checks publish permission, audit-logs the outcome, and marks
+// the session authenticated on success. Shared by every SASL mechanism once
+// it has resolved a username to a set of roles.
+func (sess *session) finishAuth(ctx context.Context, username string, roles []string) error {
 	if !hasPermission(roles, permPublish) {
 		sess.writeAuditLogAs(ctx, username, "smtp_unauthorized", "", "", "")
 		return &gosmtp.SMTPError{

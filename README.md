@@ -119,6 +119,8 @@ twilio:
 smtp_server:           # optional — omit to disable SMTP ingestion
   listen_addr: ":2525"
   domain: "relay.local"
+  cram_md5_enabled: false
+  cram_md5_secret_key: "${SMTP_CRAM_MD5_KEY}"
 ```
 
 ### Database
@@ -185,6 +187,8 @@ The SMTP ingestion server converts inbound email into notification relay jobs. I
 | `tls_mode` | `none` | Encryption mode: `none`, `starttls`, or `tls` (implicit TLS, like SMTPS). `starttls` and `tls` require `tls_cert_file`/`tls_key_file`. |
 | `tls_cert_file` | — | Path to a PEM TLS certificate. Required when `tls_mode` is `starttls` or `tls`. |
 | `tls_key_file` | — | Path to the PEM private key matching `tls_cert_file` |
+| `cram_md5_enabled` | `false` | Enables the SASL CRAM-MD5 mechanism, authenticated against a separate, non-LDAP credential store (see [Authentication](#authentication)). |
+| `cram_md5_secret_key` | — | Base64-encoded 32-byte AES-256 key used to encrypt CRAM-MD5 credential secrets at rest. Required when `cram_md5_enabled` is `true`; startup fails if it doesn't decode to exactly 32 bytes. Supports `${ENV_VAR}` interpolation. |
 
 ### Twilio
 
@@ -418,7 +422,18 @@ Notes:
 
 ### Authentication
 
-Senders authenticate via SASL PLAIN or LOGIN. Credentials are verified against LDAP; only users with the `publisher` or `admin` role may send. Each accepted message writes three audit log entries: `smtp_login`, `create_event`, and `create_notification`.
+Senders authenticate via SASL PLAIN, LOGIN, or (if enabled) CRAM-MD5. Each accepted message writes three audit log entries: `smtp_login`, `create_event`, and `create_notification`.
+
+**PLAIN / LOGIN:** credentials are verified against LDAP; only users with the `publisher` or `admin` role may send. This is the default path and requires no extra configuration beyond `ldap`.
+
+**CRAM-MD5:** a separate, non-LDAP mechanism for clients that can't do STARTTLS/PLAIN but support CRAM-MD5 (e.g. some legacy monitoring tools). CRAM-MD5 is structurally incompatible with LDAP bind (see [Authentication & RBAC](#authentication--rbac)) — the client never sends a plaintext password, only `username HMAC-MD5(secret, server_challenge)`, so the server must independently hold the plaintext shared secret to verify the response. Caching plaintext LDAP passwords server-side to support this would be a serious regression, so CRAM-MD5 credentials are managed in their own table instead, with secrets encrypted at rest (AES-256-GCM, key from `smtp_server.cram_md5_secret_key`) and decrypted only at auth time.
+
+To use CRAM-MD5:
+1. Set `smtp_server.cram_md5_enabled: true` and `cram_md5_secret_key` (see [SMTP Ingestion Server Config](#smtp-ingestion-server-config)).
+2. Create a credential with `nrcli smtp-cram add USERNAME --role publisher` (admin only). The generated secret is shown once and cannot be retrieved again.
+3. Configure the sending client with that username/secret using the CRAM-MD5 SASL mechanism.
+
+Roles for CRAM-MD5 credentials are assigned directly (no LDAP group indirection) and checked the same way as LDAP-derived roles — only `publisher` or `admin` may send.
 
 ### TLS
 
@@ -515,6 +530,7 @@ nrcli [--url URL] [--user USER] [--password PASS] [--json] <command> <subcommand
 | `templates` | Create, update, and delete email templates |
 | `subscriptions` | Manage SMS subscriptions (self-service and admin) |
 | `audit` | View the audit log (admin only) |
+| `smtp-cram` | Manage SMTP CRAM-MD5 credentials (admin only) |
 
 Run `nrcli <command> --help` or `nrcli <command> <subcommand> --help` for full flag details.
 
@@ -553,4 +569,11 @@ nrcli groups members grp-oncall
 
 ```bash
 nrcli subscriptions subscribe-me
+```
+
+**Example — create a CRAM-MD5 credential for SMTP ingestion:**
+
+```bash
+nrcli smtp-cram add monitoring-tool --role publisher
+# Secret is printed once — save it now, it cannot be retrieved again.
 ```

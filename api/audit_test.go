@@ -53,7 +53,7 @@ func TestListAuditLog_ContainsFailedLoginEntries(t *testing.T) {
 	roleConfig := map[string][]string{"admin": {"grp-admins"}}
 
 	failingSrv := api.NewServer(config.HTTPConfig{}, q, queue, noopLogger(),
-		&stubAuth{err: ldap.ErrInvalidCredentials}, okGroupVerifier(), &stubUserLookup{}, roleConfig, []string{"test"})
+		&stubAuth{err: ldap.ErrInvalidCredentials}, okGroupVerifier(), &stubUserLookup{}, roleConfig, []string{"test"}, config.SMTPServerConfig{})
 	w := do(failingSrv, "GET", "/api/v1/audit", nil)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("want 401, got %d: %s", w.Code, w.Body)
@@ -61,7 +61,7 @@ func TestListAuditLog_ContainsFailedLoginEntries(t *testing.T) {
 
 	adminSrv := api.NewServer(config.HTTPConfig{}, q, queue, noopLogger(),
 		&stubAuth{result: &ldap.AuthResult{UserDN: "CN=admin,DC=example,DC=com", Groups: []string{"grp-admins"}}},
-		okGroupVerifier(), &stubUserLookup{}, roleConfig, []string{"test"})
+		okGroupVerifier(), &stubUserLookup{}, roleConfig, []string{"test"}, config.SMTPServerConfig{})
 	w = do(adminSrv, "GET", "/api/v1/audit", nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)

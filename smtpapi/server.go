@@ -3,6 +3,7 @@ package smtpapi
 import (
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"log/slog"
 
 	gosmtp "github.com/emersion/go-smtp"
@@ -27,6 +28,7 @@ type SMTPServer struct {
 	logger     *slog.Logger
 	auth       ldap.Authenticator
 	roleConfig map[string][]string
+	cramStore  *cramCredentialStore
 	srv        *gosmtp.Server
 }
 
@@ -47,6 +49,16 @@ func NewSMTPServer(
 		logger:     logger,
 		auth:       auth,
 		roleConfig: roleConfig,
+	}
+
+	if cfg.CRAMMD5Enabled {
+		key, err := base64.StdEncoding.DecodeString(cfg.CRAMMD5SecretKey)
+		if err != nil {
+			// config.validate() already checked this; treat as a startup bug.
+			logger.Error("smtp server: invalid cram_md5_secret_key", "error", err)
+		} else {
+			s.cramStore = newCRAMCredentialStore(q, key)
+		}
 	}
 
 	srv := gosmtp.NewServer(s)
