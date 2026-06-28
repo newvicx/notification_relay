@@ -31,7 +31,7 @@ config/                  # YAML config loading with env var interpolation
 db/                      # SQLite connections, SQLc-generated queries
   migrations/            # Goose migration files
 ldap/                    # LDAP client, authentication, group sync
-notify/                  # Dispatcher, delivery providers (email/SMS/voice), Twilio poller, templating
+notify/                  # Dispatcher, delivery providers (email/SMS/voice), Twilio poller, event auto-expire sweep, templating
 smtpapi/                 # SMTP ingestion server (email-to-notification gateway)
 sql/                     # Schema and SQLc query definitions
 ```
@@ -40,7 +40,7 @@ sql/                     # Schema and SQLc query definitions
 
 **Startup sequence** (`cmd/notification_relay/main.go`):
 1. Load config → open SQLite (writer + reader pool) → run migrations
-2. Start goroutines: LDAP syncer, Twilio poller, notification dispatcher, HTTP server, and (if `smtp_server.listen_addr` is set) the SMTP ingestion server
+2. Start goroutines: LDAP syncer, Twilio poller, notification dispatcher, event auto-expire sweep (if `event_sweep.enabled`), HTTP server, and (if `smtp_server.listen_addr` is set) the SMTP ingestion server
 3. Graceful shutdown on SIGINT/SIGTERM
 
 **Database**: SQLite with WAL mode. Single writer connection (avoids `SQLITE_BUSY`), configurable reader pool (default 4). All queries are SQLc-generated — edit `sql/` then run `sqlc generate`.
@@ -57,6 +57,8 @@ sql/                     # Schema and SQLc query definitions
 **Notification flow**: Event → Notification (targets groups) → expand to members → Delivery records per member per channel → dispatcher workers process queue. Delivery providers: SMTP for email, Twilio for SMS and voice. Email/SMS bodies can reference a stored template (`api/templates.go`, `notify/template.go`) rendered with `html/template`.
 
 **Twilio status**: Polled periodically (default 30s) as a webhook fallback due to firewall restrictions (`notify/poller.go`).
+
+**Event auto-expire sweep** (`notify/sweeper.go`): events left open (`end_time IS NULL`) past a configurable TTL are auto-closed by a background sweep, guarding against orphaned events — most commonly from `smtpapi`, which has no way to revisit an event after creation, but also from HTTP API callers that never call the end-event endpoint. Disabled by default (`event_sweep.enabled: false`); when enabled, auto-closed events are flagged via the `auto_closed` column/API field so callers can distinguish "the sweep stopped waiting" from an explicit resolution.
 
 **SMTP ingestion** (`smtpapi/`): an inbound SMTP server that converts received email into notification relay jobs, so alerting tools that only know how to send email can target on-call groups. Each `RCPT TO` local part encodes a group and its delivery channels (`group+sms+voice`); Subject becomes the event name and the body the message. Auth is SASL PLAIN, LOGIN, or (opt-in) CRAM-MD5; PLAIN/LOGIN verify against LDAP, CRAM-MD5 verifies against a separate non-LDAP credential store (publisher/admin roles only either way). `smtp_server.tls_mode` selects `none` (plaintext), `starttls` (plaintext listener, upgraded via STARTTLS), or `tls` (implicit TLS, like SMTPS); `starttls`/`tls` require `tls_cert_file`/`tls_key_file`.
 
@@ -115,6 +117,11 @@ notify:
   retry_delay: 60s
   delivery_timeout: 30s
 
+event_sweep:
+  enabled: false        # opt-in; auto-closes events left open past ttl
+  ttl: 24h
+  interval: 15m
+
 severities: [none, information, warning, minor, major, critical]
 ```
 
@@ -138,6 +145,7 @@ Everything below is implemented and tested:
 - SMTP ingestion server (`smtpapi/`)
 - SMTP CRAM-MD5 auth against a separate non-LDAP credential store (`smtpapi/cram*.go`, `api/cram_credentials.go`)
 - SMS self-service subscribe/unsubscribe form (`api/subscribe.go`)
+- Event auto-expire sweep for orphaned events (`notify/sweeper.go`)
 - CLI (`cmd/nrcli`)
 
 There is no known stub/placeholder functionality remaining; treat this file as needing a re-check against the code whenever a major feature lands.

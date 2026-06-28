@@ -60,6 +60,7 @@ type Event struct {
 	CreatedAt        string         `json:"created_at"`
 	ModifiedBy       sql.NullString `json:"modified_by"`
 	ModifiedAt       sql.NullString `json:"modified_at"`
+	AutoClosed       int64          `json:"auto_closed"`
 }
 
 type GroupMember struct {

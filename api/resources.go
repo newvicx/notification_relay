@@ -26,6 +26,7 @@ type eventResponse struct {
 	CreatedAt        string `json:"created_at"`
 	ModifiedBy       string `json:"modified_by"`
 	ModifiedAt       string `json:"modified_at"`
+	AutoClosed       bool   `json:"auto_closed"`
 }
 
 type notificationResponse struct {
@@ -76,6 +77,7 @@ func toEventResponse(e db.Event) eventResponse {
 		CreatedAt:        e.CreatedAt,
 		ModifiedBy:       e.ModifiedBy.String,
 		ModifiedAt:       e.ModifiedAt.String,
+		AutoClosed:       e.AutoClosed != 0,
 	}
 }
 

@@ -102,6 +102,16 @@ func main() {
 		poller.RunPollFailed(ctx)
 	}()
 
+	// Event auto-expire sweep (disabled unless event_sweep.enabled is set)
+	if cfg.EventSweep.Enabled {
+		sweeper := notify.NewSweeper(cfg.EventSweep, writer, logger)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sweeper.Run(ctx)
+		}()
+	}
+
 	// Twilio delivery providers (only constructed when AccountSID is configured)
 	var smsProvider notify.SMSProvider
 	var voiceProvider notify.VoiceProvider

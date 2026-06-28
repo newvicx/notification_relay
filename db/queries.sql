@@ -46,6 +46,16 @@ SELECT * FROM events WHERE event_id = ?;
 -- name: UpdateEventEndTime :exec
 UPDATE events SET end_time = ?, modified_at = ?, modified_by = ? WHERE event_id = ?;
 
+-- name: ListStaleOpenEvents :many
+-- Open events (end_time IS NULL) that started before the given cutoff,
+-- used by the auto-expire sweep to find candidates for auto-closing.
+SELECT * FROM events WHERE end_time IS NULL AND start_time <= ?;
+
+-- name: AutoCloseEvent :exec
+-- Closes an event on behalf of the auto-expire sweep, setting auto_closed
+-- so callers can distinguish "we stopped waiting" from a real resolution.
+UPDATE events SET end_time = ?, auto_closed = 1, modified_at = ?, modified_by = ? WHERE event_id = ?;
+
 -- name: ListEvents :many
 SELECT * FROM events ORDER BY start_time DESC LIMIT ? OFFSET ?;
 
