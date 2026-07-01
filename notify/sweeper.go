@@ -53,39 +53,34 @@ func (s *Sweeper) Run(ctx context.Context) {
 }
 
 func (s *Sweeper) sweep(ctx context.Context) {
+	now := time.Now().UTC().Format(time.RFC3339)
 	cutoff := time.Now().UTC().Add(-s.cfg.TTL).Format(time.RFC3339)
 
-	stale, err := s.q.ListStaleOpenEvents(ctx, cutoff)
+	closed, err := s.q.AutoCloseStaleEvents(ctx, db.AutoCloseStaleEventsParams{
+		EndTime:    sql.NullString{String: now, Valid: true},
+		ModifiedAt: sql.NullString{String: now, Valid: true},
+		ModifiedBy: sql.NullString{String: auditSystemUser, Valid: true},
+		StartTime:  cutoff,
+	})
 	if err != nil {
-		s.logger.Error("sweeper: list stale open events failed", "error", err)
+		s.logger.Error("sweeper: auto-close stale events failed", "error", err)
 		return
 	}
-	if len(stale) == 0 {
+	if len(closed) == 0 {
 		return
 	}
 
-	now := time.Now().UTC().Format(time.RFC3339)
-	for _, event := range stale {
-		if err := s.q.AutoCloseEvent(ctx, db.AutoCloseEventParams{
-			EndTime:    sql.NullString{String: now, Valid: true},
-			ModifiedAt: sql.NullString{String: now, Valid: true},
-			ModifiedBy: sql.NullString{String: auditSystemUser, Valid: true},
-			EventID:    event.EventID,
-		}); err != nil {
-			s.logger.Error("sweeper: auto-close event failed", "event_id", event.EventID, "error", err)
-			continue
-		}
-
+	for _, eventID := range closed {
 		if err := s.q.InsertAuditLog(ctx, db.InsertAuditLogParams{
 			Timestamp:     now,
 			Username:      auditSystemUser,
 			Action:        "auto_close_event",
 			ImpactedTable: "events",
-			OldValues:     sql.NullString{String: event.EventID, Valid: true},
+			OldValues:     sql.NullString{String: eventID, Valid: true},
 		}); err != nil {
-			s.logger.Error("sweeper: write audit log failed", "event_id", event.EventID, "error", err)
+			s.logger.Error("sweeper: write audit log failed", "event_id", eventID, "error", err)
 		}
-
-		s.logger.Info("sweeper: auto-closed stale event", "event_id", event.EventID, "start_time", event.StartTime)
 	}
+
+	s.logger.Info("sweeper: auto-closed stale events", "count", len(closed))
 }

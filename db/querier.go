@@ -9,9 +9,11 @@ import (
 )
 
 type Querier interface {
-	// Closes an event on behalf of the auto-expire sweep, setting auto_closed
-	// so callers can distinguish "we stopped waiting" from a real resolution.
-	AutoCloseEvent(ctx context.Context, arg AutoCloseEventParams) error
+	// Bulk auto-close all open events (end_time IS NULL) whose start_time predates
+	// the given cutoff. Returns the event_id of each closed event so the caller
+	// can write per-event audit records. Setting auto_closed distinguishes these
+	// from events resolved via the explicit end-event endpoint.
+	AutoCloseStaleEvents(ctx context.Context, arg AutoCloseStaleEventsParams) ([]string, error)
 	DeleteCRAMCredential(ctx context.Context, username string) error
 	DeleteEmailTemplate(ctx context.Context, templateName string) error
 	DeleteGroupMembers(ctx context.Context, groupName string) error
@@ -67,9 +69,6 @@ type Querier interface {
 	ListNotificationsByEventID(ctx context.Context, eventID string) ([]Notification, error)
 	ListPollFailedDeliveries(ctx context.Context) ([]Delivery, error)
 	ListSMSSubscriptions(ctx context.Context) ([]SmsSubscription, error)
-	// Open events (end_time IS NULL) that started before the given cutoff,
-	// used by the auto-expire sweep to find candidates for auto-closing.
-	ListStaleOpenEvents(ctx context.Context, startTime string) ([]Event, error)
 	// sync_groups
 	ListSyncGroups(ctx context.Context) ([]SyncGroup, error)
 	ResetPollAttempts(ctx context.Context) error

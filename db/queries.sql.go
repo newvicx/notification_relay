@@ -10,27 +10,50 @@ import (
 	"database/sql"
 )
 
-const autoCloseEvent = `-- name: AutoCloseEvent :exec
-UPDATE events SET end_time = ?, auto_closed = 1, modified_at = ?, modified_by = ? WHERE event_id = ?
+const autoCloseStaleEvents = `-- name: AutoCloseStaleEvents :many
+UPDATE events
+SET end_time = ?, auto_closed = 1, modified_at = ?, modified_by = ?
+WHERE end_time IS NULL AND start_time <= ?
+RETURNING event_id
 `
 
-type AutoCloseEventParams struct {
+type AutoCloseStaleEventsParams struct {
 	EndTime    sql.NullString `json:"end_time"`
 	ModifiedAt sql.NullString `json:"modified_at"`
 	ModifiedBy sql.NullString `json:"modified_by"`
-	EventID    string         `json:"event_id"`
+	StartTime  string         `json:"start_time"`
 }
 
-// Closes an event on behalf of the auto-expire sweep, setting auto_closed
-// so callers can distinguish "we stopped waiting" from a real resolution.
-func (q *Queries) AutoCloseEvent(ctx context.Context, arg AutoCloseEventParams) error {
-	_, err := q.db.ExecContext(ctx, autoCloseEvent,
+// Bulk auto-close all open events (end_time IS NULL) whose start_time predates
+// the given cutoff. Returns the event_id of each closed event so the caller
+// can write per-event audit records. Setting auto_closed distinguishes these
+// from events resolved via the explicit end-event endpoint.
+func (q *Queries) AutoCloseStaleEvents(ctx context.Context, arg AutoCloseStaleEventsParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, autoCloseStaleEvents,
 		arg.EndTime,
 		arg.ModifiedAt,
 		arg.ModifiedBy,
-		arg.EventID,
+		arg.StartTime,
 	)
-	return err
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var event_id string
+		if err := rows.Scan(&event_id); err != nil {
+			return nil, err
+		}
+		items = append(items, event_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const deleteCRAMCredential = `-- name: DeleteCRAMCredential :exec
@@ -1288,49 +1311,6 @@ func (q *Queries) ListSMSSubscriptions(ctx context.Context) ([]SmsSubscription, 
 	for rows.Next() {
 		var i SmsSubscription
 		if err := rows.Scan(&i.Username, &i.Phone, &i.SubscribedAt); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listStaleOpenEvents = `-- name: ListStaleOpenEvents :many
-SELECT id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at, modified_by, modified_at, auto_closed FROM events WHERE end_time IS NULL AND start_time <= ?
-`
-
-// Open events (end_time IS NULL) that started before the given cutoff,
-// used by the auto-expire sweep to find candidates for auto-closing.
-func (q *Queries) ListStaleOpenEvents(ctx context.Context, startTime string) ([]Event, error) {
-	rows, err := q.db.QueryContext(ctx, listStaleOpenEvents, startTime)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Event
-	for rows.Next() {
-		var i Event
-		if err := rows.Scan(
-			&i.ID,
-			&i.EventID,
-			&i.EventUrl,
-			&i.EventName,
-			&i.EventDescription,
-			&i.EventSeverity,
-			&i.StartTime,
-			&i.EndTime,
-			&i.CreatedBy,
-			&i.CreatedAt,
-			&i.ModifiedBy,
-			&i.ModifiedAt,
-			&i.AutoClosed,
-		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
