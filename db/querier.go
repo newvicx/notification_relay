@@ -9,6 +9,11 @@ import (
 )
 
 type Querier interface {
+	// Bulk auto-close all open events (end_time IS NULL) whose start_time predates
+	// the given cutoff. Returns the event_id of each closed event so the caller
+	// can write per-event audit records. Setting auto_closed distinguishes these
+	// from events resolved via the explicit end-event endpoint.
+	AutoCloseStaleEvents(ctx context.Context, arg AutoCloseStaleEventsParams) ([]string, error)
 	DeleteCRAMCredential(ctx context.Context, username string) error
 	DeleteEmailTemplate(ctx context.Context, templateName string) error
 	DeleteGroupMembers(ctx context.Context, groupName string) error

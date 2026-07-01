@@ -10,6 +10,52 @@ import (
 	"database/sql"
 )
 
+const autoCloseStaleEvents = `-- name: AutoCloseStaleEvents :many
+UPDATE events
+SET end_time = ?, auto_closed = 1, modified_at = ?, modified_by = ?
+WHERE end_time IS NULL AND start_time <= ?
+RETURNING event_id
+`
+
+type AutoCloseStaleEventsParams struct {
+	EndTime    sql.NullString `json:"end_time"`
+	ModifiedAt sql.NullString `json:"modified_at"`
+	ModifiedBy sql.NullString `json:"modified_by"`
+	StartTime  string         `json:"start_time"`
+}
+
+// Bulk auto-close all open events (end_time IS NULL) whose start_time predates
+// the given cutoff. Returns the event_id of each closed event so the caller
+// can write per-event audit records. Setting auto_closed distinguishes these
+// from events resolved via the explicit end-event endpoint.
+func (q *Queries) AutoCloseStaleEvents(ctx context.Context, arg AutoCloseStaleEventsParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, autoCloseStaleEvents,
+		arg.EndTime,
+		arg.ModifiedAt,
+		arg.ModifiedBy,
+		arg.StartTime,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var event_id string
+		if err := rows.Scan(&event_id); err != nil {
+			return nil, err
+		}
+		items = append(items, event_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const deleteCRAMCredential = `-- name: DeleteCRAMCredential :exec
 DELETE FROM smtp_cram_credentials WHERE username = ?
 `
@@ -122,7 +168,7 @@ func (q *Queries) GetEmailTemplateByName(ctx context.Context, templateName strin
 }
 
 const getEventByEventID = `-- name: GetEventByEventID :one
-SELECT id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at, modified_by, modified_at FROM events WHERE event_id = ?
+SELECT id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at, modified_by, modified_at, auto_closed FROM events WHERE event_id = ?
 `
 
 func (q *Queries) GetEventByEventID(ctx context.Context, eventID string) (Event, error) {
@@ -141,12 +187,13 @@ func (q *Queries) GetEventByEventID(ctx context.Context, eventID string) (Event,
 		&i.CreatedAt,
 		&i.ModifiedBy,
 		&i.ModifiedAt,
+		&i.AutoClosed,
 	)
 	return i, err
 }
 
 const getEventByID = `-- name: GetEventByID :one
-SELECT id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at, modified_by, modified_at FROM events WHERE id = ?
+SELECT id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at, modified_by, modified_at, auto_closed FROM events WHERE id = ?
 `
 
 func (q *Queries) GetEventByID(ctx context.Context, id int64) (Event, error) {
@@ -165,6 +212,7 @@ func (q *Queries) GetEventByID(ctx context.Context, id int64) (Event, error) {
 		&i.CreatedAt,
 		&i.ModifiedBy,
 		&i.ModifiedAt,
+		&i.AutoClosed,
 	)
 	return i, err
 }
@@ -542,7 +590,7 @@ const insertEvent = `-- name: InsertEvent :one
 
 INSERT INTO events (event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at, modified_by, modified_at
+RETURNING id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at, modified_by, modified_at, auto_closed
 `
 
 type InsertEventParams struct {
@@ -584,6 +632,7 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) (Event
 		&i.CreatedAt,
 		&i.ModifiedBy,
 		&i.ModifiedAt,
+		&i.AutoClosed,
 	)
 	return i, err
 }
@@ -909,7 +958,7 @@ func (q *Queries) ListEmailTemplates(ctx context.Context) ([]EmailTemplate, erro
 }
 
 const listEvents = `-- name: ListEvents :many
-SELECT id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at, modified_by, modified_at FROM events ORDER BY start_time DESC LIMIT ? OFFSET ?
+SELECT id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at, modified_by, modified_at, auto_closed FROM events ORDER BY start_time DESC LIMIT ? OFFSET ?
 `
 
 type ListEventsParams struct {
@@ -939,6 +988,7 @@ func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]Event
 			&i.CreatedAt,
 			&i.ModifiedBy,
 			&i.ModifiedAt,
+			&i.AutoClosed,
 		); err != nil {
 			return nil, err
 		}
@@ -954,7 +1004,7 @@ func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]Event
 }
 
 const listEventsFiltered = `-- name: ListEventsFiltered :many
-SELECT id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at, modified_by, modified_at FROM events
+SELECT id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at, modified_by, modified_at, auto_closed FROM events
 WHERE (?1 = '' OR start_time >= ?1)
   AND (?2 = '' OR start_time <= ?2)
   AND (?3 = '' OR LOWER(event_id) LIKE '%' || LOWER(?3) || '%')
@@ -1013,6 +1063,7 @@ func (q *Queries) ListEventsFiltered(ctx context.Context, arg ListEventsFiltered
 			&i.CreatedAt,
 			&i.ModifiedBy,
 			&i.ModifiedAt,
+			&i.AutoClosed,
 		); err != nil {
 			return nil, err
 		}
@@ -1393,7 +1444,7 @@ UPDATE events
 SET event_url = ?, event_name = ?, event_description = ?, event_severity = ?,
     modified_by = ?, modified_at = ?
 WHERE event_id = ?
-RETURNING id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at, modified_by, modified_at
+RETURNING id, event_id, event_url, event_name, event_description, event_severity, start_time, end_time, created_by, created_at, modified_by, modified_at, auto_closed
 `
 
 type UpdateEventParams struct {
@@ -1430,6 +1481,7 @@ func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) (Event
 		&i.CreatedAt,
 		&i.ModifiedBy,
 		&i.ModifiedAt,
+		&i.AutoClosed,
 	)
 	return i, err
 }

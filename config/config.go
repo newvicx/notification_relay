@@ -18,6 +18,7 @@ type Config struct {
 	SMTP       SMTPConfig       `yaml:"smtp"`
 	SMTPServer SMTPServerConfig `yaml:"smtp_server"`
 	Notify     NotifyConfig     `yaml:"notify"`
+	EventSweep EventSweepConfig `yaml:"event_sweep"`
 	Logging    LoggingConfig    `yaml:"logging"`
 	Severities []string         `yaml:"severities"`
 }
@@ -152,6 +153,19 @@ type NotifyConfig struct {
 	DeliveryConcurrency int `yaml:"delivery_concurrency"`
 }
 
+type EventSweepConfig struct {
+	// Enabled turns on the background sweep that auto-closes events left open
+	// (end_time IS NULL) past TTL. Disabled by default: closing an event is a
+	// claim about reality ("this stopped"), and silently making that claim on
+	// a timer is a behavior change operators should opt into deliberately.
+	Enabled bool `yaml:"enabled"`
+	// TTL is how long an event may stay open before the sweep auto-closes it.
+	// Measured from the event's start_time. Default: 24h.
+	TTL time.Duration `yaml:"ttl"`
+	// Interval controls how often the sweep runs. Default: 15m.
+	Interval time.Duration `yaml:"interval"`
+}
+
 type LoggingConfig struct {
 	Level  string `yaml:"level"`
 	Format string `yaml:"format"`
@@ -235,6 +249,10 @@ func defaults() *Config {
 			DeliveryTimeout:     30 * time.Second,
 			DeliveryConcurrency: 16,
 		},
+		EventSweep: EventSweepConfig{
+			TTL:      24 * time.Hour,
+			Interval: 15 * time.Minute,
+		},
 		Logging: LoggingConfig{
 			Level:  "info",
 			Format: "json",
@@ -282,6 +300,9 @@ func validate(cfg *Config) error {
 		if err != nil || len(key) != 32 {
 			return fmt.Errorf("smtp_server.cram_md5_secret_key must be a base64-encoded 32-byte key when smtp_server.cram_md5_enabled is true")
 		}
+	}
+	if cfg.EventSweep.Enabled && cfg.EventSweep.TTL <= 0 {
+		return fmt.Errorf("event_sweep.ttl must be positive when event_sweep.enabled is true")
 	}
 	knownRoles := map[string]bool{"admin": true, "publisher": true, "reader": true}
 	for name := range cfg.LDAP.Roles {
