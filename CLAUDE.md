@@ -58,6 +58,8 @@ sql/                     # Schema and SQLc query definitions
 
 **Twilio status**: Polled periodically (default 30s) as a webhook fallback due to firewall restrictions (`notify/poller.go`).
 
+**Reverse proxy path prefix** (`http.path_prefix`): when set (e.g. `/relay`), every server-generated redirect and every UI-rendered link, form action, and htmx attribute (`api/ui_templates_html/*.html`, `api/subscribe.go`) is prefixed via `Server.url()` / the `Prefix` field injected into `uiPageData`/`formPageData` by `renderUIPage`/`renderPage`. Route registration itself is unprefixed — the reverse proxy is expected to strip the prefix before forwarding requests to the backend. Must start with `/` and not end with `/`; empty (default) disables it.
+
 **Event auto-expire sweep** (`notify/sweeper.go`): events left open (`end_time IS NULL`) past a configurable TTL are auto-closed by a background sweep, guarding against orphaned events — most commonly from `smtpapi`, which has no way to revisit an event after creation, but also from HTTP API callers that never call the end-event endpoint. Disabled by default (`event_sweep.enabled: false`); when enabled, auto-closed events are flagged via the `auto_closed` column/API field so callers can distinguish "the sweep stopped waiting" from an explicit resolution.
 
 **SMTP ingestion** (`smtpapi/`): an inbound SMTP server that converts received email into notification relay jobs, so alerting tools that only know how to send email can target on-call groups. Each `RCPT TO` local part encodes a group and its delivery channels (`group+sms+voice`); Subject becomes the event name and the body the message. Auth is SASL PLAIN, LOGIN, or (opt-in) CRAM-MD5; PLAIN/LOGIN verify against LDAP, CRAM-MD5 verifies against a separate non-LDAP credential store (publisher/admin roles only either way). `smtp_server.tls_mode` selects `none` (plaintext), `starttls` (plaintext listener, upgraded via STARTTLS), or `tls` (implicit TLS, like SMTPS); `starttls`/`tls` require `tls_cert_file`/`tls_key_file`.
@@ -77,6 +79,7 @@ database:
 
 http:
   listen_addr: ":8080"
+  path_prefix: ""               # e.g. "/relay" when behind a reverse proxy at a subpath
 
 ldap:
   primary_url: "ldaps://..."

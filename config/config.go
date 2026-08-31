@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -34,6 +35,14 @@ type HTTPConfig struct {
 	WriteTimeout    time.Duration `yaml:"write_timeout"`
 	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
 	SpecPath        string        `yaml:"spec_path"`
+	// PathPrefix is prepended to every server-generated redirect and to every
+	// UI resource link (stylesheet, script, form action, htmx endpoint) so the
+	// app works behind a reverse proxy that maps it to a subpath, e.g.
+	// "/relay". The proxy is expected to strip the prefix before forwarding
+	// requests, so route matching itself is unaffected — only the URLs the
+	// server writes back to the browser change. Must start with "/" and must
+	// not end with "/"; empty (default) means no prefix.
+	PathPrefix string `yaml:"path_prefix"`
 }
 
 type LDAPConfig struct {
@@ -276,6 +285,11 @@ func validate(cfg *Config) error {
 	}
 	if cfg.LDAP.UserBaseDN == "" {
 		return fmt.Errorf("ldap.user_base_dn is required")
+	}
+	if cfg.HTTP.PathPrefix != "" {
+		if !strings.HasPrefix(cfg.HTTP.PathPrefix, "/") || strings.HasSuffix(cfg.HTTP.PathPrefix, "/") {
+			return fmt.Errorf("http.path_prefix must start with \"/\" and not end with \"/\" (got %q)", cfg.HTTP.PathPrefix)
+		}
 	}
 	switch cfg.SMTP.TLSMode {
 	case "none", "starttls", "tls", "":

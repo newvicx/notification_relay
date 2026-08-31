@@ -49,7 +49,7 @@ func (s *Server) handleUICreateSyncGroup(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	http.Redirect(w, r, "/ui/groups/sync", http.StatusSeeOther)
+	http.Redirect(w, r, s.url("/ui/groups/sync"), http.StatusSeeOther)
 }
 
 func (s *Server) handleUIDeleteSyncGroup(w http.ResponseWriter, r *http.Request) {

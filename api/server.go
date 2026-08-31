@@ -176,7 +176,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /ui/login", s.handleUILoginSubmit)
 	mux.HandleFunc("POST /ui/logout", s.handleUILogout)
 	mux.HandleFunc("GET /ui/{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/ui/events", http.StatusSeeOther)
+		http.Redirect(w, r, s.url("/ui/events"), http.StatusSeeOther)
 	})
 
 	mux.Handle("GET /ui/events",
@@ -230,6 +230,16 @@ func (s *Server) Start() error {
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.uiCancel()
 	return s.srv.Shutdown(ctx)
+}
+
+// url prepends the configured HTTP path prefix (empty by default) to path,
+// for use in redirects and other server-generated absolute URLs. UI page and
+// form templates receive the same prefix via uiPageData.Prefix /
+// formPageData.Prefix so links, form actions, and htmx attributes agree with
+// it. Route registration itself is not prefixed: the reverse proxy is
+// expected to strip the prefix before forwarding the request.
+func (s *Server) url(path string) string {
+	return s.cfg.PathPrefix + path
 }
 
 func fileExists(filename string) bool {

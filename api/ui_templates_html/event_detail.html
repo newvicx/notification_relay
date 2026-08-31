@@ -1,5 +1,5 @@
 {{define "content"}}
-<p><a href="/ui/events">&larr; Back to events</a></p>
+<p><a href="{{.Prefix}}/ui/events">&larr; Back to events</a></p>
 <h1>{{.Data.Event.EventName}}</h1>
 <p class="muted">{{.Data.Event.EventID}}</p>
 <table>
@@ -29,7 +29,7 @@
       <td>{{.CreatedAt}}</td>
       <td>
         <button type="button"
-          hx-get="/ui/notifications/{{.NotificationID}}/deliveries-partial"
+          hx-get="{{$.Prefix}}/ui/notifications/{{.NotificationID}}/deliveries-partial"
           hx-target="#deliveries-{{.NotificationID}}"
           hx-swap="innerHTML">
           Deliveries

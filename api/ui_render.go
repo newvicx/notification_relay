@@ -38,6 +38,11 @@ type uiPageData struct {
 	Flash      string
 	FlashClass string
 	Data       any
+	// Prefix is the configured HTTP path prefix (e.g. "/relay"), prepended by
+	// templates to every link, form action, and htmx attribute so the UI
+	// works behind a reverse proxy that maps the app to a subpath. Set by
+	// renderUIPage; callers building uiPageData do not need to set it.
+	Prefix string
 }
 
 func mustLoadUITemplates() (map[string]*template.Template, map[string]*template.Template) {
@@ -62,6 +67,7 @@ func (s *Server) renderUIPage(w http.ResponseWriter, page string, data uiPageDat
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+	data.Prefix = s.cfg.PathPrefix
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.ExecuteTemplate(w, "layout.html", data); err != nil {
 		s.logger.Error("renderUIPage: execute failed", "page", page, "error", err)

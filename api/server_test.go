@@ -343,6 +343,85 @@ func TestUIListEvents_FiltersRendered(t *testing.T) {
 	}
 }
 
+func TestUIPathPrefix_RedirectsAndLinksUsePrefix(t *testing.T) {
+	_, q := testutil.OpenDB(t)
+	queue := make(chan notify.Job, 16)
+	srv := api.NewServer(config.HTTPConfig{PathPrefix: "/relay"}, q, queue, noopLogger(),
+		publisherAuth(), okGroupVerifier(), &stubUserLookup{}, testRoleConfig, []string{"test"}, config.SMTPServerConfig{})
+	shutdownOnCleanup(t, srv)
+
+	// GET /ui/{$} redirects to the events page under the prefix.
+	req := httptest.NewRequest("GET", "/ui/", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("want 303, got %d: %s", w.Code, w.Body)
+	}
+	if loc := w.Header().Get("Location"); loc != "/relay/ui/events" {
+		t.Errorf("want redirect to /relay/ui/events, got %q", loc)
+	}
+
+	// The login page's own form action and asset links carry the prefix.
+	w = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/ui/login", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte(`action="/relay/ui/login"`)) {
+		t.Errorf("login page missing prefixed form action:\n%s", w.Body)
+	}
+
+	// Logging in redirects to the events page under the prefix.
+	loginBody := "username=pub&password=pass"
+	req = httptest.NewRequest("POST", "/ui/login", bytes.NewReader([]byte(loginBody)))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("login: want 303, got %d: %s", w.Code, w.Body)
+	}
+	if loc := w.Header().Get("Location"); loc != "/relay/ui/events" {
+		t.Errorf("want login redirect to /relay/ui/events, got %q", loc)
+	}
+	var sessionCookie *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		sessionCookie = c
+	}
+	if sessionCookie == nil {
+		t.Fatal("login: no session cookie set")
+	}
+
+	// The events page's static assets, nav links, and row links carry the prefix.
+	req = httptest.NewRequest("GET", "/ui/events", nil)
+	req.AddCookie(sessionCookie)
+	w = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+	body := w.Body.String()
+	for _, want := range []string{
+		`href="/relay/ui/static/style.css"`,
+		`src="/relay/ui/static/htmx.min.js"`,
+		`<a href="/relay/ui/events">Events</a>`,
+		`action="/relay/ui/events"`,
+	} {
+		if !bytes.Contains([]byte(body), []byte(want)) {
+			t.Errorf("events page missing %q\nbody:\n%s", want, body)
+		}
+	}
+
+	// The subscribe form (independent of the ui/ layout) also carries the prefix.
+	w = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/subscribe", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte(`action="/relay/subscribe"`)) {
+		t.Errorf("subscribe page missing prefixed form action:\n%s", w.Body)
+	}
+}
+
 func TestGetEvent(t *testing.T) {
 	srv, _ := newTestServer(t, publisherAuth())
 
