@@ -57,3 +57,43 @@ func TestValidate_CRAMMD5DisabledIgnoresKey(t *testing.T) {
 		t.Fatalf("unexpected error when cram_md5 disabled: %v", err)
 	}
 }
+
+func TestValidate_PathPrefixEmptyIsValid(t *testing.T) {
+	cfg := validBaseConfig()
+	cfg.HTTP.PathPrefix = ""
+	if err := validate(cfg); err != nil {
+		t.Fatalf("unexpected error for empty path_prefix: %v", err)
+	}
+}
+
+func TestValidate_PathPrefixAcceptsLeadingSlash(t *testing.T) {
+	cfg := validBaseConfig()
+	cfg.HTTP.PathPrefix = "/relay"
+	if err := validate(cfg); err != nil {
+		t.Fatalf("unexpected error for valid path_prefix: %v", err)
+	}
+}
+
+func TestValidate_PathPrefixRejectsMissingLeadingSlash(t *testing.T) {
+	cfg := validBaseConfig()
+	cfg.HTTP.PathPrefix = "relay"
+	if err := validate(cfg); err == nil {
+		t.Fatal("expected error for path_prefix missing leading slash")
+	}
+}
+
+func TestValidate_PathPrefixRejectsTrailingSlash(t *testing.T) {
+	cfg := validBaseConfig()
+	cfg.HTTP.PathPrefix = "/relay/"
+	if err := validate(cfg); err == nil {
+		t.Fatal("expected error for path_prefix with trailing slash")
+	}
+}
+
+func TestValidate_PathPrefixRejectsBareSlash(t *testing.T) {
+	cfg := validBaseConfig()
+	cfg.HTTP.PathPrefix = "/"
+	if err := validate(cfg); err == nil {
+		t.Fatal("expected error for bare-slash path_prefix")
+	}
+}

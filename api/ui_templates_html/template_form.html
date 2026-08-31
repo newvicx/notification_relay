@@ -2,7 +2,7 @@
 <h1>{{if .Data.Editing}}Edit Template{{else}}New Template{{end}}</h1>
 
 <div class="card">
-  <form method="POST" action="{{if .Data.Editing}}/ui/templates/{{.Data.TemplateName}}/edit{{else}}/ui/templates/new{{end}}">
+  <form method="POST" action="{{.Prefix}}{{if .Data.Editing}}/ui/templates/{{.Data.TemplateName}}/edit{{else}}/ui/templates/new{{end}}">
     <label for="template_name">Template name</label>
     <input type="text" id="template_name" name="template_name" value="{{.Data.TemplateName}}"
       {{if .Data.Editing}}readonly{{else}}required{{end}}>

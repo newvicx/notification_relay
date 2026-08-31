@@ -11,7 +11,7 @@ func (s *Server) handleUILoginForm(w http.ResponseWriter, r *http.Request) {
 	// Already signed in — skip the form.
 	if cookie, err := r.Cookie(uiSessionCookieName); err == nil {
 		if _, ok := s.uiSessions.get(cookie.Value); ok {
-			http.Redirect(w, r, "/ui/events", http.StatusSeeOther)
+			http.Redirect(w, r, s.url("/ui/events"), http.StatusSeeOther)
 			return
 		}
 	}
@@ -61,7 +61,7 @@ func (s *Server) handleUILoginSubmit(w http.ResponseWriter, r *http.Request) {
 
 	s.auditLog(r.Context(), username, ip, "ui_login", "auth", "", "")
 	s.setSessionCookie(w, r, token)
-	http.Redirect(w, r, "/ui/events", http.StatusSeeOther)
+	http.Redirect(w, r, s.url("/ui/events"), http.StatusSeeOther)
 }
 
 func (s *Server) handleUILogout(w http.ResponseWriter, r *http.Request) {
@@ -69,5 +69,5 @@ func (s *Server) handleUILogout(w http.ResponseWriter, r *http.Request) {
 		s.uiSessions.delete(cookie.Value)
 	}
 	s.clearSessionCookie(w, r)
-	http.Redirect(w, r, "/ui/login", http.StatusSeeOther)
+	http.Redirect(w, r, s.url("/ui/login"), http.StatusSeeOther)
 }

@@ -101,7 +101,7 @@ func (s *Server) handleUICreateTemplate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	http.Redirect(w, r, "/ui/templates", http.StatusSeeOther)
+	http.Redirect(w, r, s.url("/ui/templates"), http.StatusSeeOther)
 }
 
 func (s *Server) handleUIEditTemplateForm(w http.ResponseWriter, r *http.Request) {
@@ -161,7 +161,7 @@ func (s *Server) handleUIUpdateTemplate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	http.Redirect(w, r, "/ui/templates", http.StatusSeeOther)
+	http.Redirect(w, r, s.url("/ui/templates"), http.StatusSeeOther)
 }
 
 func (s *Server) handleUIDeleteTemplate(w http.ResponseWriter, r *http.Request) {

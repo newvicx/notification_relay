@@ -130,12 +130,12 @@ func (s *Server) authenticateSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(uiSessionCookieName)
 		if err != nil {
-			http.Redirect(w, r, "/ui/login", http.StatusSeeOther)
+			http.Redirect(w, r, s.url("/ui/login"), http.StatusSeeOther)
 			return
 		}
 		user, ok := s.uiSessions.get(cookie.Value)
 		if !ok {
-			http.Redirect(w, r, "/ui/login", http.StatusSeeOther)
+			http.Redirect(w, r, s.url("/ui/login"), http.StatusSeeOther)
 			return
 		}
 		ctx := context.WithValue(r.Context(), ctxKey{}, user)

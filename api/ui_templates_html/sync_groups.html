@@ -3,7 +3,7 @@
 <p class="muted">LDAP groups mirrored into the local member database for delivery expansion.</p>
 
 <div class="card">
-  <form method="POST" action="/ui/groups/sync">
+  <form method="POST" action="{{.Prefix}}/ui/groups/sync">
     <label for="group_name">LDAP group name</label>
     <input type="text" id="group_name" name="group_name" required>
     <button type="submit">Add group</button>
@@ -22,7 +22,7 @@
       <td>{{.CreatedAt}}</td>
       <td>
         <button type="button" class="danger"
-          hx-post="/ui/groups/sync/{{.GroupName}}/delete"
+          hx-post="{{$.Prefix}}/ui/groups/sync/{{.GroupName}}/delete"
           hx-confirm="Remove {{.GroupName}} from sync?"
           hx-target="closest tr"
           hx-swap="outerHTML">

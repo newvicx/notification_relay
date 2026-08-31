@@ -4,7 +4,7 @@
 
 {{if .IsAdmin}}
 <div class="card">
-  <a href="/ui/templates/new"><button type="button">New template</button></a>
+  <a href="{{.Prefix}}/ui/templates/new"><button type="button">New template</button></a>
 </div>
 {{end}}
 
@@ -21,9 +21,9 @@
       <td>{{.RequiredVars}}</td>
       <td>
         {{if $isAdmin}}
-        <a href="/ui/templates/{{.TemplateName}}/edit">Edit</a>
+        <a href="{{$.Prefix}}/ui/templates/{{.TemplateName}}/edit">Edit</a>
         <button type="button" class="danger"
-          hx-post="/ui/templates/{{.TemplateName}}/delete"
+          hx-post="{{$.Prefix}}/ui/templates/{{.TemplateName}}/delete"
           hx-confirm="Delete template {{.TemplateName}}?"
           hx-target="closest tr"
           hx-swap="outerHTML">
