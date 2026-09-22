@@ -92,6 +92,19 @@ func TestValidateTemplate_RequiredVarNotPrefixMatch(t *testing.T) {
 	}
 }
 
+// A required var used only inside a conditional (e.g. {{if eq .trigger "x"}})
+// must still be recognized as referenced.
+func TestValidateTemplate_RequiredVarInConditional(t *testing.T) {
+	err := ValidateTemplate(
+		`{{ if eq .trigger "admin_digest" }}Digest{{ else }}Alert{{ end }}`,
+		`<p>{{ if eq .trigger "admin_digest" }}Summary{{ else }}Detail{{ end }}</p>`,
+		[]string{"trigger"},
+	)
+	if err != nil {
+		t.Fatalf("required var used only in a conditional should be valid: %v", err)
+	}
+}
+
 func TestRenderTemplate(t *testing.T) {
 	vars := map[string]any{
 		"severity": "critical",
@@ -200,6 +213,9 @@ func TestContainsFieldRef(t *testing.T) {
 		{"{{.foobar}}", "foo", false},
 		{"no template here", "foo", false},
 		{"{{.foo}}", "bar", false},
+		{`{{ if eq .foo "x" }}A{{ end }}`, "foo", true},
+		{`{{if .foo}}A{{end}}`, "foo", true},
+		{"{{.other.foo}}", "foo", false},
 	}
 	for _, tc := range cases {
 		got := containsFieldRef(tc.src, tc.name)

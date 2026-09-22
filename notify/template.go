@@ -3,8 +3,12 @@ package notify
 import (
 	"fmt"
 	"html/template"
+	"regexp"
 	"strings"
 )
+
+// actionRe matches the contents of a single {{...}} template action.
+var actionRe = regexp.MustCompile(`(?s)\{\{(.*?)\}\}`)
 
 // ValidateTemplate parses subject and body as html/template sources and
 // verifies that every name in requiredVars is referenced in at least one of
@@ -57,34 +61,18 @@ func renderOne(name, src string, vars map[string]any) (string, error) {
 }
 
 // containsFieldRef reports whether varName appears as a template field
-// reference in src. It matches {{.varName}}, {{.varName.sub}}, {{.varName | f}},
-// etc., but not a name that merely has varName as a prefix (e.g. {{.varNameExtra}}).
+// reference in src. It matches {{.varName}}, {{.varName.sub}},
+// {{.varName | f}}, etc., anywhere inside a template action — including
+// inside conditionals, ranges, and other control-flow keywords (e.g.
+// {{if eq .varName "x"}}), not just a bare {{.varName}} action — but not a
+// name that merely has varName as a prefix (e.g. {{.varNameExtra}}) or that
+// appears as a sub-field of some other value (e.g. {{.other.varName}}).
 func containsFieldRef(src, varName string) bool {
-	// TODO: This doesn't work for conditionals or other control flows ({{ if .attr }})
-	// 'attr' wont be found if called out as a required var
-	f1 := "{{." + varName
-	f2 := "{{ ." + varName
-	var needle string
-	s := src
-	for {
-		i := strings.Index(s, f1)
-		if i == -1 {
-			i = strings.Index(s, f2)
-			if i == -1 {
-				return false
-			} else {
-				needle = f2
-			}
-		} else {
-			needle = f1
+	fieldRe := regexp.MustCompile(`(?:^|[^.\w])\.` + regexp.QuoteMeta(varName) + `\b`)
+	for _, m := range actionRe.FindAllStringSubmatch(src, -1) {
+		if fieldRe.MatchString(m[1]) {
+			return true
 		}
-		rest := s[i+len(needle):]
-		if len(rest) > 0 {
-			switch rest[0] {
-			case '}', '.', ' ', '\t', '|', ')':
-				return true
-			}
-		}
-		s = s[i+1:]
 	}
+	return false
 }
