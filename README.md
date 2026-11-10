@@ -237,7 +237,22 @@ The ordered list of severity labels accepted on events and notifications. The de
 
 ## Authentication & RBAC
 
-All API endpoints require HTTP Basic Auth. Credentials are validated against LDAP using the configured service account to locate the user's record and then rebinding as that user to verify the password.
+Every JSON API endpoint under `/api/v1` requires authentication, using either of two methods on each request:
+
+- **HTTP Basic Auth** (always available) — credentials are validated against LDAP using the configured service account to locate the user's record and then rebinding as that user to verify the password.
+- **Bearer JWT** (only when [OAuth is enabled](#oauth--openid-connect)) — `Authorization: Bearer <jwt>`, issued by your OAuth/OIDC provider.
+
+Other parts of the application authenticate differently:
+
+| Surface | Authentication |
+|---|---|
+| `/api/v1/*` | Basic Auth or Bearer JWT, as above |
+| Web UI (`/ui/*`) | Session cookie from the LDAP login form or, if enabled, OAuth single sign-on — see [Web UI](#web-ui). `/ui/login` and `/ui/oauth/*` are public by necessity |
+| `/subscribe`, `/unsubscribe` | Public forms that ask for LDAP credentials themselves — see [SMS Subscriptions](#sms-subscriptions) |
+| `/docs` | Swagger UI for the OpenAPI spec (when the spec file is present); not authenticated |
+| Inbound SMTP server | SASL PLAIN/LOGIN (LDAP) or CRAM-MD5 — see [SMTP Ingestion Server](#smtp-ingestion-server) |
+
+Whichever method is used, **authorization always comes from LDAP.**
 
 Roles are derived from LDAP group membership at authentication time and mapped via `ldap.roles` in the config:
 
