@@ -15,12 +15,12 @@ func (s *Server) handleUILoginForm(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.renderUIPage(w, "login.html", uiPageData{Title: "Sign in"})
+	s.renderUIPage(w, "login.html", uiPageData{Title: "Sign in", Data: s.loginData()})
 }
 
 func (s *Server) handleUILoginSubmit(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		s.renderUIPage(w, "login.html", uiPageData{Title: "Sign in", Flash: "Invalid form submission.", FlashClass: "error"})
+		s.renderUIPage(w, "login.html", uiPageData{Title: "Sign in", Flash: "Invalid form submission.", FlashClass: "error", Data: s.loginData()})
 		return
 	}
 	username := r.FormValue("username")
@@ -28,7 +28,7 @@ func (s *Server) handleUILoginSubmit(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 
 	if username == "" || password == "" {
-		s.renderUIPage(w, "login.html", uiPageData{Title: "Sign in", Flash: "Username and password are required.", FlashClass: "error"})
+		s.renderUIPage(w, "login.html", uiPageData{Title: "Sign in", Flash: "Username and password are required.", FlashClass: "error", Data: s.loginData()})
 		return
 	}
 
@@ -36,18 +36,18 @@ func (s *Server) handleUILoginSubmit(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.auditLog(r.Context(), username, ip, "ui_login_failed", "auth", "", "")
 		if errors.Is(err, ldap.ErrInvalidCredentials) {
-			s.renderUIPage(w, "login.html", uiPageData{Title: "Sign in", Flash: "Invalid credentials.", FlashClass: "error"})
+			s.renderUIPage(w, "login.html", uiPageData{Title: "Sign in", Flash: "Invalid credentials.", FlashClass: "error", Data: s.loginData()})
 			return
 		}
 		s.logger.Error("ui login: ldap auth error", "username", username, "error", err)
-		s.renderUIPage(w, "login.html", uiPageData{Title: "Sign in", Flash: "Authentication error. Please try again later.", FlashClass: "error"})
+		s.renderUIPage(w, "login.html", uiPageData{Title: "Sign in", Flash: "Authentication error. Please try again later.", FlashClass: "error", Data: s.loginData()})
 		return
 	}
 
 	roles := resolveRoles(result.Groups, s.roleConfig)
 	if !hasPermission(roles, PermRead) {
 		s.auditLog(r.Context(), username, ip, "ui_login_failed_no_role", "auth", "", "")
-		s.renderUIPage(w, "login.html", uiPageData{Title: "Sign in", Flash: "Your account is not authorized to use this application.", FlashClass: "error"})
+		s.renderUIPage(w, "login.html", uiPageData{Title: "Sign in", Flash: "Your account is not authorized to use this application.", FlashClass: "error", Data: s.loginData()})
 		return
 	}
 	user := &User{Username: username, DN: result.UserDN, Roles: roles}
@@ -55,7 +55,7 @@ func (s *Server) handleUILoginSubmit(w http.ResponseWriter, r *http.Request) {
 	token, err := s.uiSessions.create(user)
 	if err != nil {
 		s.logger.Error("ui login: session create failed", "username", username, "error", err)
-		s.renderUIPage(w, "login.html", uiPageData{Title: "Sign in", Flash: "Could not start a session. Please try again.", FlashClass: "error"})
+		s.renderUIPage(w, "login.html", uiPageData{Title: "Sign in", Flash: "Could not start a session. Please try again.", FlashClass: "error", Data: s.loginData()})
 		return
 	}
 

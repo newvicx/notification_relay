@@ -66,6 +66,8 @@ sql/                     # Schema and SQLc query definitions
 
 **SMTP CRAM-MD5 auth** (`smtpapi/cram*.go`, `api/cram_credentials.go`): CRAM-MD5 requires the server to hold the plaintext shared secret to compute HMAC-MD5 itself, which an LDAP bind never exposes — so it's backed by its own `smtp_cram_credentials` table instead of LDAP. Secrets are encrypted at rest with AES-256-GCM (`smtpapi.EncryptSecret`/`DecryptSecret`) under a server-held key (`smtp_server.cram_md5_secret_key`, base64-encoded 32 bytes) and decrypted only at auth time. Roles live directly on the credential row (no LDAP group indirection). Managed via admin-only `/api/v1/smtp/cram-credentials` endpoints and `nrcli smtp-cram add|list|remove`; `add` returns the generated secret exactly once.
 
+**OAuth / OIDC** (`oauth/`, `api/ui_oauth.go`, `ldap/grouplookup.go`): optional (`oauth.enabled`), authentication only. API accepts `Authorization: Bearer <JWT>` (verified against the provider's discovered JWKS: iss/aud/exp, `oauth.identity_claim`); the UI login page adds an authorization-code + PKCE flow (`/ui/oauth/login`, `/ui/oauth/callback`, state cookie + single-use server-side state/nonce) that ends in the normal `nr_session` cookie. In both paths the identity claim is matched in LDAP to resolve roles via `ldap.GroupLookup` (no password bind) + `ldap.roles` — AD remains the sole authority for authorization. Wired via `Server.SetOAuth` in `main.go`; discovery is lazy so a provider outage doesn't block startup. `testutil.FakeIdP` is an in-process OIDC provider for tests.
+
 **SMS self-service subscription** (`api/subscribe.go`): a small HTML form (no auth) where users can register/unregister their phone number for SMS alerts to a group, independent of LDAP group membership.
 
 ## Configuration (`config.yaml`)
@@ -96,6 +98,14 @@ twilio:
   account_sid: "AC..."
   auth_token: "${TWILIO_TOKEN}"
   from_number: "+1..."
+
+oauth:                        # optional; authentication only, roles still from ldap.roles
+  enabled: false
+  issuer: "https://sso.example.com"
+  client_id: "notification-relay"
+  client_secret: "${OAUTH_CLIENT_SECRET}"
+  redirect_url: "https://relay.example.com/ui/oauth/callback"
+  identity_claim: sub           # claim identifying the user (username, email, ...)
 
 smtp:
   host: smtp.example.com
@@ -149,6 +159,7 @@ Everything below is implemented and tested:
 - SMTP CRAM-MD5 auth against a separate non-LDAP credential store (`smtpapi/cram*.go`, `api/cram_credentials.go`)
 - SMS self-service subscribe/unsubscribe form (`api/subscribe.go`)
 - Event auto-expire sweep for orphaned events (`notify/sweeper.go`)
+- OAuth/OIDC bearer-JWT API auth and UI SSO login (`oauth/`, `api/ui_oauth.go`)
 - CLI (`cmd/nrcli`)
 
 There is no known stub/placeholder functionality remaining; treat this file as needing a re-check against the code whenever a major feature lands.

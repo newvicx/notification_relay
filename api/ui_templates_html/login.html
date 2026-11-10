@@ -9,6 +9,10 @@
       <input type="password" id="password" name="password" autocomplete="current-password" required>
       <button type="submit">Sign in</button>
     </form>
+    {{with .Data}}{{if .OAuth}}
+    <hr>
+    <a class="button-link" href="{{$.Prefix}}/ui/oauth/login">Sign in with {{.ProviderName}}</a>
+    {{end}}{{end}}
   </div>
 </div>
 {{end}}

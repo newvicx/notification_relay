@@ -260,6 +260,37 @@ ldap:
 
 A user's effective role is the highest-privilege role for which they are a member of at least one of the mapped LDAP groups.
 
+### OAuth / OpenID Connect
+
+Optionally, users can authenticate with JWTs from an OIDC provider instead of passwords (any OpenID Connect provider works). **OAuth only handles authentication — authorization is unchanged.** The token's identity claim is looked up in LDAP (matching `sAMAccountName`, `userPrincipalName` or `mail`) and roles come from `ldap.roles` group membership. A valid token whose user has no LDAP account or no mapped role gets `403`.
+
+```yaml
+oauth:
+  enabled: true
+  issuer: "https://sso.example.com"            # discovery: <issuer>/.well-known/openid-configuration
+  client_id: "notification-relay"
+  client_secret: "${OAUTH_CLIENT_SECRET}"
+  redirect_url: "https://relay.example.com/relay/ui/oauth/callback"   # include http.path_prefix
+  audience: "notification-relay"               # required "aud" of API bearer tokens (default: client_id)
+  identity_claim: "sub"                        # claim identifying the user: username, email, ... (default: sub)
+  scopes: [openid, profile]
+  signing_algs: [RS256]
+  provider_name: "Corporate SSO"               # sign-in button label
+  group_cache_ttl: 30s                         # LDAP group lookups for token users
+```
+
+| Key | Default | Description |
+|---|---|---|
+| `issuer`, `client_id`, `redirect_url` | *(required)* | Provider issuer URL, this app's client ID, and the exact callback URL registered with the provider |
+| `client_secret` | | Omit for a public client (PKCE is always used). Supply via `${ENV_VAR}`; requires an `https://` issuer |
+| `audience` | `client_id` | Value the API requires in a bearer token's `aud` |
+| `identity_claim` | `sub` | Token claim that identifies the user; matched in LDAP |
+| `signing_algs` | `[RS256]` | Accepted JWT signature algorithms |
+
+**API:** send `Authorization: Bearer <jwt>`. Signature (via the provider's JWKS, fetched and cached automatically), `iss`, `aud` and `exp` are verified. Basic Auth keeps working alongside it. Failed token validations are audited as `bearer_login_failed`.
+
+**Web UI:** the login page shows a "Sign in with …" button that runs the authorization-code flow with PKCE, state and nonce, then starts the normal session cookie. Register `redirect_url` with the provider. Provider discovery is lazy, so the relay starts even if the provider is down (password login still works).
+
 ### Auth Caching
 
 To reduce LDAP load, successful authentications are cached in an in-process LRU. Configure the cache size and TTL via `ldap.auth_cache_size` and `ldap.auth_cache_ttl`. Set `auth_cache_size: 0` to disable caching entirely.
@@ -476,6 +507,7 @@ Unlike the JSON API (which uses HTTP Basic Auth on every request), the UI uses a
 - Sign in at `/ui/login` with the same LDAP credentials used for the API. Authentication and role resolution go through the same LDAP authenticator and `ldap.roles` mapping, so the same [RBAC](#authentication--rbac) rules apply.
 - On success a session cookie (`nr_session`, `HttpOnly`, `SameSite=Lax`, and `Secure` over HTTPS) is set. Sessions are held in memory with an 8-hour sliding expiry and are cleared on logout. A server restart ends all sessions.
 - Only users who resolve to at least the `reader` role may sign in.
+- When [OAuth is enabled](#oauth--openid-connect), the login page also offers single sign-on through the identity provider; the result is the same session cookie.
 
 ### Pages
 

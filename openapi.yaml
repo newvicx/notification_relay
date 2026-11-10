@@ -23,6 +23,7 @@ servers:
 
 security:
   - basicAuth: []
+  - bearerAuth: []
 
 tags:
   - name: Events
@@ -47,6 +48,14 @@ components:
     basicAuth:
       type: http
       scheme: basic
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        JWT issued by the configured OAuth/OIDC provider. Only
+        accepted when `oauth.enabled` is true. The token authenticates the
+        caller; roles still come from Active Directory group membership.
 
   parameters:
     limit:
