@@ -97,3 +97,39 @@ func TestValidate_PathPrefixRejectsBareSlash(t *testing.T) {
 		t.Fatal("expected error for bare-slash path_prefix")
 	}
 }
+
+func TestValidate_OAuthRequiresFields(t *testing.T) {
+	cfg := validBaseConfig()
+	cfg.OAuth.Enabled = true
+	if err := validate(cfg); err == nil {
+		t.Fatal("expected error for missing oauth issuer/client_id/redirect_url")
+	}
+}
+
+func TestValidate_OAuthDefaultsAudienceToClientID(t *testing.T) {
+	cfg := validBaseConfig()
+	cfg.OAuth = OAuthConfig{
+		Enabled: true, Issuer: "https://sso.example.com", ClientID: "relay",
+		RedirectURL: "https://relay.example.com/ui/oauth/callback",
+	}
+	if err := validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.OAuth.Audience != "relay" {
+		t.Fatalf("audience = %q, want client_id", cfg.OAuth.Audience)
+	}
+}
+
+func TestValidate_OAuthRejectsRelativeRedirect(t *testing.T) {
+	cfg := validBaseConfig()
+	cfg.OAuth = OAuthConfig{Enabled: true, Issuer: "https://sso.example.com", ClientID: "relay", RedirectURL: "/ui/oauth/callback"}
+	if err := validate(cfg); err == nil {
+		t.Fatal("expected error for relative redirect_url")
+	}
+}
+
+func TestValidate_OAuthDisabledIgnoresFields(t *testing.T) {
+	if err := validate(validBaseConfig()); err != nil {
+		t.Fatal(err)
+	}
+}

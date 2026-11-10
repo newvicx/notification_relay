@@ -15,6 +15,7 @@ type Config struct {
 	Database   DatabaseConfig   `yaml:"database"`
 	HTTP       HTTPConfig       `yaml:"http"`
 	LDAP       LDAPConfig       `yaml:"ldap"`
+	OAuth      OAuthConfig      `yaml:"oauth"`
 	Twilio     TwilioConfig     `yaml:"twilio"`
 	SMTP       SMTPConfig       `yaml:"smtp"`
 	SMTPServer SMTPServerConfig `yaml:"smtp_server"`
@@ -95,6 +96,49 @@ type LDAPConfig struct {
 	// Keep short to ensure group changes take effect promptly. Default: 30s.
 	AuthCacheTTL time.Duration `yaml:"auth_cache_ttl"`
 	PageSize     uint32        `yaml:"page_size"`
+}
+
+// OAuthConfig enables OpenID Connect / OAuth 2.0 authentication against an
+// external identity provider (PingFederate). It handles authentication only:
+// the verified username claim is mapped to an LDAP account and roles still
+// come from ldap.roles group membership.
+type OAuthConfig struct {
+	// Enabled turns on JWT bearer authentication for the API and the
+	// authorization-code login flow for the web UI. Default: false.
+	Enabled bool `yaml:"enabled"`
+	// Issuer is the provider's issuer URL, e.g. "https://sso.example.com".
+	// Endpoints and signing keys are discovered from
+	// <issuer>/.well-known/openid-configuration. Must match the "iss" claim.
+	Issuer string `yaml:"issuer"`
+	// ClientID and ClientSecret identify this application to the provider
+	// (confidential client). ClientSecret may be empty for a public client
+	// using PKCE only.
+	ClientID     string `yaml:"client_id"`
+	ClientSecret string `yaml:"client_secret"`
+	// RedirectURL is the externally visible callback URL registered with the
+	// provider, including any http.path_prefix, e.g.
+	// "https://relay.example.com/relay/ui/oauth/callback".
+	RedirectURL string `yaml:"redirect_url"`
+	// Scopes requested during the UI login. "openid" is always included.
+	// Default: [openid, profile].
+	Scopes []string `yaml:"scopes"`
+	// Audience is the value API bearer tokens must carry in their "aud"
+	// claim. Default: client_id.
+	Audience string `yaml:"audience"`
+	// UsernameClaim is the JWT claim holding the Active Directory
+	// sAMAccountName used for the LDAP group lookup. Default: "sub".
+	UsernameClaim string `yaml:"username_claim"`
+	// SigningAlgs restricts accepted JWT signature algorithms. Default: [RS256].
+	SigningAlgs []string `yaml:"signing_algs"`
+	// ProviderName is the label shown on the UI sign-in button.
+	// Default: "single sign-on".
+	ProviderName string `yaml:"provider_name"`
+	// TLSSkipVerify disables certificate verification when talking to the
+	// provider. For testing only.
+	TLSSkipVerify bool `yaml:"tls_skip_verify"`
+	// GroupCacheTTL controls how long LDAP group lookups for bearer-token
+	// users are cached, so group changes apply promptly. Default: 30s.
+	GroupCacheTTL time.Duration `yaml:"group_cache_ttl"`
 }
 
 type TwilioConfig struct {
@@ -240,6 +284,13 @@ func defaults() *Config {
 			AuthCacheSize: 256,
 			AuthCacheTTL:  30 * time.Second,
 		},
+		OAuth: OAuthConfig{
+			Scopes:        []string{"openid", "profile"},
+			UsernameClaim: "sub",
+			SigningAlgs:   []string{"RS256"},
+			ProviderName:  "single sign-on",
+			GroupCacheTTL: 30 * time.Second,
+		},
 		Twilio: TwilioConfig{
 			PollInterval:     30 * time.Second,
 			PollAttemptLimit: 10,
@@ -289,6 +340,24 @@ func validate(cfg *Config) error {
 	if cfg.HTTP.PathPrefix != "" {
 		if !strings.HasPrefix(cfg.HTTP.PathPrefix, "/") || strings.HasSuffix(cfg.HTTP.PathPrefix, "/") {
 			return fmt.Errorf("http.path_prefix must start with \"/\" and not end with \"/\" (got %q)", cfg.HTTP.PathPrefix)
+		}
+	}
+	if cfg.OAuth.Enabled {
+		o := &cfg.OAuth
+		if o.Audience == "" {
+			o.Audience = o.ClientID
+		}
+		if o.Issuer == "" || o.ClientID == "" || o.RedirectURL == "" {
+			return fmt.Errorf("oauth.issuer, oauth.client_id and oauth.redirect_url are required when oauth.enabled is true")
+		}
+		if !strings.HasPrefix(o.Issuer, "https://") && !strings.HasPrefix(o.Issuer, "http://") {
+			return fmt.Errorf("oauth.issuer must be an http(s) URL (got %q)", o.Issuer)
+		}
+		if !strings.HasPrefix(o.RedirectURL, "https://") && !strings.HasPrefix(o.RedirectURL, "http://") {
+			return fmt.Errorf("oauth.redirect_url must be an absolute http(s) URL (got %q)", o.RedirectURL)
+		}
+		if o.Audience == "" {
+			return fmt.Errorf("oauth.audience or oauth.client_id is required when oauth.enabled is true")
 		}
 	}
 	switch cfg.SMTP.TLSMode {

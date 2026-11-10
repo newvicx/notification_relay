@@ -16,6 +16,7 @@ import (
 	"notification_relay/db"
 	ldap "notification_relay/ldap"
 	"notification_relay/notify"
+	"notification_relay/oauth"
 )
 
 // Server is the HTTP API server.
@@ -32,6 +33,9 @@ type Server struct {
 	eventSeverities []string
 	cramKey         []byte // AES-256 key for SMTP CRAM-MD5 credential secrets; nil if disabled
 	uiSessions      *uiSessionStore
+	oauth           oauth.Provider   // nil unless SetOAuth was called
+	groupLookup     ldap.GroupLookup // LDAP groups for token-authenticated users
+	oauthStates     *oauthStateStore
 	uiCancel        context.CancelFunc
 	uiPages         map[string]*template.Template
 	uiFragments     map[string]*template.Template
@@ -51,6 +55,7 @@ func NewServer(cfg config.HTTPConfig, q *db.Queries, queue chan<- notify.Job, lo
 		roleConfig:      roleConfig,
 		eventSeverities: eventSeverities,
 		uiSessions:      newUISessionStore(),
+		oauthStates:     newOAuthStateStore(),
 		uiCancel:        uiCancel,
 		uiPages:         uiPages,
 		uiFragments:     uiFragments,
@@ -175,6 +180,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ui/login", s.handleUILoginForm)
 	mux.HandleFunc("POST /ui/login", s.handleUILoginSubmit)
 	mux.HandleFunc("POST /ui/logout", s.handleUILogout)
+	mux.HandleFunc("GET /ui/oauth/login", s.handleUIOAuthLogin)
+	mux.HandleFunc("GET /ui/oauth/callback", s.handleUIOAuthCallback)
 	mux.HandleFunc("GET /ui/{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, s.url("/ui/events"), http.StatusSeeOther)
 	})

@@ -19,6 +19,7 @@ import (
 	"notification_relay/db"
 	ldapsync "notification_relay/ldap"
 	"notification_relay/notify"
+	"notification_relay/oauth"
 	"notification_relay/smtpapi"
 )
 
@@ -168,6 +169,18 @@ func main() {
 
 	// HTTP server
 	srv := api.NewServer(cfg.HTTP, writerQ, jobQueue, logger, ldapAuth, groupVerifier, userLookup, cfg.LDAP.Roles, cfg.Severities, cfg.SMTPServer)
+	if cfg.OAuth.Enabled {
+		groupLookup := ldapsync.NewCachedGroupLookup(ldapsync.NewGroupLookup(
+			cfg.LDAP.PrimaryURL,
+			cfg.LDAP.BackupURL,
+			cfg.LDAP.BindDN,
+			cfg.LDAP.BindPassword,
+			cfg.LDAP.UserBaseDN,
+			cfg.LDAP.TLSSkipVerify,
+		), cfg.LDAP.AuthCacheSize, cfg.OAuth.GroupCacheTTL)
+		srv.SetOAuth(oauth.New(cfg.OAuth), groupLookup)
+		logger.Info("oauth enabled", "issuer", cfg.OAuth.Issuer)
+	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
