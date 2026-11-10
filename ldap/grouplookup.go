@@ -11,7 +11,8 @@ import (
 )
 
 // GroupLookup resolves a user's LDAP group memberships without verifying a
-// password. It is for callers that have already authenticated the user by
+// password. The identifier may be a sAMAccountName, userPrincipalName or mail
+// value; AuthResult.Username reports the canonical sAMAccountName. It is for callers that have already authenticated the user by
 // other means (e.g. a validated OAuth JWT) and only need authorization data.
 // ErrUserNotFound is returned when no LDAP entry matches the username.
 type GroupLookup interface {
@@ -46,20 +47,35 @@ func (l *ldapGroupLookup) LookupGroups(_ context.Context, username string) (*Aut
 		l.userBaseDN,
 		goldap.ScopeWholeSubtree,
 		goldap.NeverDerefAliases,
-		1, 0, false,
-		fmt.Sprintf("(sAMAccountName=%s)", goldap.EscapeFilter(username)),
-		[]string{"dn", "memberOf"},
+		2, 0, false, // 2 so an ambiguous identifier is detectable
+		lookupFilter(username),
+		[]string{"dn", "sAMAccountName", "memberOf"},
 		nil,
 	)
 	result, err := conn.Search(req)
-	if err != nil {
+	if err != nil && !goldap.IsErrorWithCode(err, goldap.LDAPResultSizeLimitExceeded) {
 		return nil, fmt.Errorf("user search: %w", err)
 	}
-	if len(result.Entries) == 0 {
+	if result == nil || len(result.Entries) == 0 {
+		return nil, ErrUserNotFound
+	}
+	if len(result.Entries) > 1 || err != nil {
+		// More than one account claims this identifier; refuse to guess.
 		return nil, ErrUserNotFound
 	}
 	entry := result.Entries[0]
-	return &AuthResult{UserDN: entry.DN, Groups: parseCNs(entry.GetAttributeValues("memberOf"))}, nil
+	return &AuthResult{
+		Username: entry.GetAttributeValue("sAMAccountName"),
+		UserDN:   entry.DN,
+		Groups:   parseCNs(entry.GetAttributeValues("memberOf")),
+	}, nil
+}
+
+// lookupFilter matches an identifier against the attributes an identity
+// provider commonly sends: username, UPN, or email.
+func lookupFilter(id string) string {
+	e := goldap.EscapeFilter(id)
+	return fmt.Sprintf("(&(objectClass=user)(|(sAMAccountName=%s)(userPrincipalName=%s)(mail=%s)))", e, e, e)
 }
 
 type groupCacheEntry struct {

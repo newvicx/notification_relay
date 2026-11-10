@@ -28,7 +28,8 @@ func (s *stubGroupLookup) LookupGroups(_ context.Context, u string) (*ldap.AuthR
 	if !ok {
 		return nil, ldap.ErrUserNotFound
 	}
-	return &ldap.AuthResult{UserDN: "CN=" + u + ",DC=x", Groups: g}, nil
+	// Users may be looked up by email; the canonical name is the part before "@".
+	return &ldap.AuthResult{Username: strings.SplitN(u, "@", 2)[0], UserDN: "CN=" + u + ",DC=x", Groups: g}, nil
 }
 
 func newOAuthServer(t *testing.T) (*api.Server, *testutil.FakeIdP) {
@@ -39,12 +40,13 @@ func newOAuthServer(t *testing.T) (*api.Server, *testutil.FakeIdP) {
 	srv.SetOAuth(oauth.New(config.OAuthConfig{
 		Issuer: idp.Issuer(), ClientID: "relay", ClientSecret: "s", Audience: "relay",
 		RedirectURL: "https://relay.example.com/ui/oauth/callback", Scopes: []string{"openid"},
-		UsernameClaim: "sub", SigningAlgs: []string{"RS256"}, ProviderName: "PingFederate",
+		IdentityClaim: "sub", SigningAlgs: []string{"RS256"}, ProviderName: "Corporate SSO",
 	}), &stubGroupLookup{users: map[string][]string{
-		"pub":      {"grp-pub"},
-		"reader":   {"grp-reader"},
-		"norole":   {"grp-other"},
-		"disabled": nil,
+		"pub":               {"grp-pub"},
+		"reader":            {"grp-reader"},
+		"norole":            {"grp-other"},
+		"disabled":          nil,
+		"carol@example.com": {"grp-pub"},
 	}})
 	return srv, idp
 }
@@ -110,7 +112,7 @@ func TestBearer_BasicAuthStillWorks(t *testing.T) {
 func TestBearer_LDAPOutageIs500(t *testing.T) {
 	idp := testutil.NewFakeIdP(t, "relay")
 	srv, _ := newTestServer(t, publisherAuth())
-	srv.SetOAuth(oauth.New(config.OAuthConfig{Issuer: idp.Issuer(), ClientID: "relay", Audience: "relay", UsernameClaim: "sub"}),
+	srv.SetOAuth(oauth.New(config.OAuthConfig{Issuer: idp.Issuer(), ClientID: "relay", Audience: "relay", IdentityClaim: "sub"}),
 		&stubGroupLookup{err: context.DeadlineExceeded})
 	if w := bearerGet(srv, "/api/v1/events", idp.Sign(map[string]any{"aud": "relay", "sub": "pub"})); w.Code != http.StatusInternalServerError {
 		t.Fatalf("want 500, got %d", w.Code)
@@ -246,7 +248,16 @@ func TestUIOAuth_DisabledAndLoginButton(t *testing.T) {
 	on, _ := newOAuthServer(t)
 	w = httptest.NewRecorder()
 	on.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/ui/login", nil))
-	if !strings.Contains(w.Body.String(), "/ui/oauth/login") || !strings.Contains(w.Body.String(), "PingFederate") {
+	if !strings.Contains(w.Body.String(), "/ui/oauth/login") || !strings.Contains(w.Body.String(), "Corporate SSO") {
 		t.Errorf("SSO button missing: %s", w.Body)
+	}
+}
+
+func TestBearer_EmailIdentityUsesCanonicalUsername(t *testing.T) {
+	srv, idp := newOAuthServer(t)
+	tok := idp.Sign(map[string]any{"aud": "relay", "sub": "carol@example.com"})
+	// carol maps to publisher via LDAP, so the publish-only listing works...
+	if w := bearerGet(srv, "/api/v1/events", tok); w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", w.Code, w.Body)
 	}
 }

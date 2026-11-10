@@ -11,8 +11,9 @@ import (
 
 // AuthResult holds the outcome of a successful credential verification.
 type AuthResult struct {
-	UserDN string   // full distinguished name of the authenticated user
-	Groups []string // CN values of all direct LDAP groups the user is a member of
+	Username string   // canonical sAMAccountName; set by GroupLookup (may be empty from Authenticator)
+	UserDN   string   // full distinguished name of the authenticated user
+	Groups   []string // CN values of all direct LDAP groups the user is a member of
 }
 
 // ErrInvalidCredentials is returned when the username does not exist or the

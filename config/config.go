@@ -99,9 +99,9 @@ type LDAPConfig struct {
 }
 
 // OAuthConfig enables OpenID Connect / OAuth 2.0 authentication against an
-// external identity provider (PingFederate). It handles authentication only:
-// the verified username claim is mapped to an LDAP account and roles still
-// come from ldap.roles group membership.
+// external identity provider. It handles authentication only: the verified
+// identity claim is matched to an LDAP account and roles still come from
+// ldap.roles group membership.
 type OAuthConfig struct {
 	// Enabled turns on JWT bearer authentication for the API and the
 	// authorization-code login flow for the web UI. Default: false.
@@ -112,7 +112,10 @@ type OAuthConfig struct {
 	Issuer string `yaml:"issuer"`
 	// ClientID and ClientSecret identify this application to the provider
 	// (confidential client). ClientSecret may be empty for a public client
-	// using PKCE only.
+	// using PKCE only. The secret is read from the config (use ${ENV_VAR}
+	// rather than a literal), kept in memory, never logged, and sent only to
+	// the provider's token endpoint; it is not stored in the database. When
+	// set, issuer must be https:// so it is never sent in cleartext.
 	ClientID     string `yaml:"client_id"`
 	ClientSecret string `yaml:"client_secret"`
 	// RedirectURL is the externally visible callback URL registered with the
@@ -125,9 +128,11 @@ type OAuthConfig struct {
 	// Audience is the value API bearer tokens must carry in their "aud"
 	// claim. Default: client_id.
 	Audience string `yaml:"audience"`
-	// UsernameClaim is the JWT claim holding the Active Directory
-	// sAMAccountName used for the LDAP group lookup. Default: "sub".
-	UsernameClaim string `yaml:"username_claim"`
+	// IdentityClaim is the JWT claim identifying the user, whatever the
+	// provider sends (username, email, ...). It is matched against the user's
+	// LDAP sAMAccountName, userPrincipalName or mail to find their groups.
+	// Default: "sub".
+	IdentityClaim string `yaml:"identity_claim"`
 	// SigningAlgs restricts accepted JWT signature algorithms. Default: [RS256].
 	SigningAlgs []string `yaml:"signing_algs"`
 	// ProviderName is the label shown on the UI sign-in button.
@@ -286,7 +291,7 @@ func defaults() *Config {
 		},
 		OAuth: OAuthConfig{
 			Scopes:        []string{"openid", "profile"},
-			UsernameClaim: "sub",
+			IdentityClaim: "sub",
 			SigningAlgs:   []string{"RS256"},
 			ProviderName:  "single sign-on",
 			GroupCacheTTL: 30 * time.Second,
@@ -355,6 +360,9 @@ func validate(cfg *Config) error {
 		}
 		if !strings.HasPrefix(o.RedirectURL, "https://") && !strings.HasPrefix(o.RedirectURL, "http://") {
 			return fmt.Errorf("oauth.redirect_url must be an absolute http(s) URL (got %q)", o.RedirectURL)
+		}
+		if o.ClientSecret != "" && !strings.HasPrefix(o.Issuer, "https://") {
+			return fmt.Errorf("oauth.issuer must be https:// when oauth.client_secret is set")
 		}
 		if o.Audience == "" {
 			return fmt.Errorf("oauth.audience or oauth.client_id is required when oauth.enabled is true")

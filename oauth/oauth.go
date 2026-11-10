@@ -1,5 +1,5 @@
 // Package oauth authenticates users with an OpenID Connect provider
-// (PingFederate). It verifies JWTs and runs the authorization-code flow; it
+// (any OpenID Connect provider). It verifies JWTs and runs the authorization-code flow; it
 // does not decide what a user may do — that stays with LDAP group membership.
 package oauth
 
@@ -25,7 +25,7 @@ var ErrInvalidToken = errors.New("invalid token")
 // Identity is the verified identity extracted from a token.
 type Identity struct {
 	Subject  string
-	Username string // value of the configured username claim
+	Principal string // value of the configured identity claim (username, email, ...)
 }
 
 // Provider is the surface the API layer depends on.
@@ -105,12 +105,12 @@ func (c *Client) identity(tok *oidc.IDToken) (*Identity, error) {
 	if err := tok.Claims(&claims); err != nil {
 		return nil, fmt.Errorf("%w: parse claims: %v", ErrInvalidToken, err)
 	}
-	name, _ := claims[c.cfg.UsernameClaim].(string)
+	name, _ := claims[c.cfg.IdentityClaim].(string)
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return nil, fmt.Errorf("%w: missing %q claim", ErrInvalidToken, c.cfg.UsernameClaim)
+		return nil, fmt.Errorf("%w: missing %q claim", ErrInvalidToken, c.cfg.IdentityClaim)
 	}
-	return &Identity{Subject: tok.Subject, Username: name}, nil
+	return &Identity{Subject: tok.Subject, Principal: name}, nil
 }
 
 func (c *Client) VerifyBearer(ctx context.Context, raw string) (*Identity, error) {

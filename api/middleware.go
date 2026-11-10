@@ -190,7 +190,7 @@ func (s *Server) authenticateBearer(w http.ResponseWriter, r *http.Request, next
 	case identityOK:
 	case identityNotFound, identityNoRole:
 		// Valid token, but no LDAP account/roles: authenticated, not authorized.
-		s.auditLog(r.Context(), id.Username, ip, "bearer_login_failed_no_role", "auth", "", "")
+		s.auditLog(r.Context(), id.Principal, ip, "bearer_login_failed_no_role", "auth", "", "")
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	default:

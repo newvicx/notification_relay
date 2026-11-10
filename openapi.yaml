@@ -53,7 +53,7 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: >-
-        JWT issued by the configured OAuth/OIDC provider (PingFederate). Only
+        JWT issued by the configured OAuth/OIDC provider. Only
         accepted when `oauth.enabled` is true. The token authenticates the
         caller; roles still come from Active Directory group membership.
 

@@ -133,3 +133,18 @@ func TestValidate_OAuthDisabledIgnoresFields(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestValidate_OAuthClientSecretRequiresHTTPSIssuer(t *testing.T) {
+	cfg := validBaseConfig()
+	cfg.OAuth = OAuthConfig{
+		Enabled: true, Issuer: "http://sso.example.com", ClientID: "relay", ClientSecret: "s",
+		RedirectURL: "https://relay.example.com/ui/oauth/callback",
+	}
+	if err := validate(cfg); err == nil {
+		t.Fatal("expected error: client_secret with http issuer")
+	}
+	cfg.OAuth.Issuer = "https://sso.example.com"
+	if err := validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+}

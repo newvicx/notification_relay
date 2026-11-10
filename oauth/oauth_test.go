@@ -22,7 +22,7 @@ func newClient(t *testing.T) (*oauth.Client, *testutil.FakeIdP) {
 	c := oauth.New(config.OAuthConfig{
 		Enabled: true, Issuer: idp.Issuer(), ClientID: "relay", ClientSecret: "s",
 		RedirectURL: "https://relay.example.com/ui/oauth/callback", Audience: "relay-api",
-		Scopes: []string{"openid", "profile"}, UsernameClaim: "sAMAccountName",
+		Scopes: []string{"openid", "profile"}, IdentityClaim: "sAMAccountName",
 		SigningAlgs: []string{"RS256"},
 	})
 	return c, idp
@@ -48,7 +48,7 @@ func TestVerifyBearer(t *testing.T) {
 	}
 
 	id, err := c.VerifyBearer(ctx, idp.Sign(good))
-	if err != nil || id.Username != "alice" {
+	if err != nil || id.Principal != "alice" {
 		t.Fatalf("valid token: id=%+v err=%v", id, err)
 	}
 
@@ -67,7 +67,7 @@ func TestVerifyBearer(t *testing.T) {
 	}
 }
 
-func TestAuthCodeURLAndMissingUsernameClaim(t *testing.T) {
+func TestAuthCodeURLAndMissingIdentityClaim(t *testing.T) {
 	c, idp := newClient(t)
 	ctx := context.Background()
 	verifier := oauth2.GenerateVerifier()
@@ -95,7 +95,7 @@ func TestExchange(t *testing.T) {
 	idp := testutil.NewFakeIdP(t, "relay")
 	c := oauth.New(config.OAuthConfig{
 		Issuer: idp.Issuer(), ClientID: "relay", RedirectURL: "https://r/cb", Audience: "relay",
-		UsernameClaim: "sub", SigningAlgs: []string{"RS256"},
+		IdentityClaim: "sub", SigningAlgs: []string{"RS256"},
 	})
 	ctx := context.Background()
 	verifier := oauth2.GenerateVerifier()
@@ -104,7 +104,7 @@ func TestExchange(t *testing.T) {
 	challenge := pu.Query().Get("code_challenge")
 
 	id, err := c.Exchange(ctx, idp.IssueCode("alice", "n1", challenge), "n1", verifier)
-	if err != nil || id.Username != "alice" {
+	if err != nil || id.Principal != "alice" {
 		t.Fatalf("id=%+v err=%v", id, err)
 	}
 	if _, err := c.Exchange(ctx, idp.IssueCode("alice", "n1", challenge), "different-nonce", verifier); !errors.Is(err, oauth.ErrInvalidToken) {
@@ -116,7 +116,7 @@ func TestExchange(t *testing.T) {
 }
 
 func TestDiscoveryRetriedAfterFailure(t *testing.T) {
-	c := oauth.New(config.OAuthConfig{Issuer: "http://127.0.0.1:1", ClientID: "x", Audience: "x", UsernameClaim: "sub"})
+	c := oauth.New(config.OAuthConfig{Issuer: "http://127.0.0.1:1", ClientID: "x", Audience: "x", IdentityClaim: "sub"})
 	if _, err := c.VerifyBearer(context.Background(), "a.b.c"); err == nil || errors.Is(err, oauth.ErrInvalidToken) {
 		t.Fatalf("provider outage must be a non-token error, got %v", err)
 	}

@@ -166,11 +166,11 @@ func (s *Server) handleUIOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	switch status {
 	case identityOK:
 	case identityNoRole:
-		s.auditLog(r.Context(), id.Username, ip, "ui_login_failed_no_role", "auth", "", "")
+		s.auditLog(r.Context(), id.Principal, ip, "ui_login_failed_no_role", "auth", "", "")
 		s.oauthLoginFailed(w, "Your account is not authorized to use this application.")
 		return
 	case identityNotFound:
-		s.auditLog(r.Context(), id.Username, ip, "ui_oauth_login_failed", "auth", "", "")
+		s.auditLog(r.Context(), id.Principal, ip, "ui_oauth_login_failed", "auth", "", "")
 		s.oauthLoginFailed(w, "Your account is not authorized to use this application.")
 		return
 	default:
@@ -178,18 +178,18 @@ func (s *Server) handleUIOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !hasPermission(user.Roles, PermRead) {
-		s.auditLog(r.Context(), id.Username, ip, "ui_login_failed_no_role", "auth", "", "")
+		s.auditLog(r.Context(), id.Principal, ip, "ui_login_failed_no_role", "auth", "", "")
 		s.oauthLoginFailed(w, "Your account is not authorized to use this application.")
 		return
 	}
 
 	token, err := s.uiSessions.create(user)
 	if err != nil {
-		s.logger.Error("ui oauth: session create failed", "username", id.Username, "error", err)
+		s.logger.Error("ui oauth: session create failed", "username", id.Principal, "error", err)
 		s.oauthLoginFailed(w, "Could not start a session. Please try again.")
 		return
 	}
-	s.auditLog(r.Context(), id.Username, ip, "ui_oauth_login", "auth", "", "")
+	s.auditLog(r.Context(), id.Principal, ip, "ui_oauth_login", "auth", "", "")
 	s.setSessionCookie(w, r, token)
 	http.Redirect(w, r, s.url("/ui/events"), http.StatusSeeOther)
 }
@@ -218,17 +218,21 @@ func (s *Server) userFromIdentity(r *http.Request, id *oauth.Identity) (*User, i
 		s.logger.Error("oauth enabled but no LDAP group lookup configured")
 		return nil, identityError
 	}
-	res, err := s.groupLookup.LookupGroups(r.Context(), id.Username)
+	res, err := s.groupLookup.LookupGroups(r.Context(), id.Principal)
 	if err != nil {
 		if errors.Is(err, ldap.ErrUserNotFound) {
 			return nil, identityNotFound
 		}
-		s.logger.Error("oauth: ldap group lookup failed", "username", id.Username, "error", err)
+		s.logger.Error("oauth: ldap group lookup failed", "username", id.Principal, "error", err)
 		return nil, identityError
 	}
 	roles := resolveRoles(res.Groups, s.roleConfig)
 	if len(roles) == 0 {
 		return nil, identityNoRole
 	}
-	return &User{Username: id.Username, DN: res.UserDN, Roles: roles}, identityOK
+	username := res.Username
+	if username == "" {
+		username = id.Principal
+	}
+	return &User{Username: username, DN: res.UserDN, Roles: roles}, identityOK
 }

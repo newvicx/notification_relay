@@ -61,3 +61,11 @@ func TestCachedGroupLookup_Expiry(t *testing.T) {
 		t.Fatalf("calls = %d, want 2 after TTL", inner.calls)
 	}
 }
+
+func TestLookupFilter_EscapesAndMatchesIdentityForms(t *testing.T) {
+	got := lookupFilter("a*)(uid=*")
+	want := `(&(objectClass=user)(|(sAMAccountName=a\2a\29\28uid=\2a)(userPrincipalName=a\2a\29\28uid=\2a)(mail=a\2a\29\28uid=\2a)))`
+	if got != want {
+		t.Fatalf("filter = %s\nwant     %s", got, want)
+	}
+}
